@@ -6,7 +6,22 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 import type { Response } from 'express';
+import { MulterError } from 'multer';
 import { QueryFailedError } from 'typeorm';
+
+const TRANSFORMED_MULTER_BAD_REQUEST_MESSAGES = new Set([
+  'Too many parts',
+  'Too many files',
+  'Field name too long',
+  'Field value too long',
+  'Too many fields',
+  'Unexpected field',
+  'Field name missing',
+  'Multipart: Boundary not found',
+  'Multipart: Malformed part header',
+  'Multipart: Unexpected end of form',
+  'Multipart: Unexpected end of file',
+]);
 
 interface ErrorResponse {
   code: number;
@@ -36,9 +51,36 @@ export class HttpExceptionFilter implements ExceptionFilter<unknown> {
         return;
       }
 
+      const errorResponse: ErrorResponse = {
+        code: status,
+        message: this.normalizeTransformedMulterMessage(
+          status,
+          this.getHttpExceptionMessage(exception, exceptionResponse),
+        ),
+      };
+      const details = this.getHttpExceptionDetails(exceptionResponse);
+
+      if (details !== undefined) {
+        errorResponse.details = details;
+      }
+
+      response.status(status).json(errorResponse);
+      return;
+    }
+
+    if (exception instanceof MulterError) {
+      const status =
+        exception.code === 'LIMIT_FILE_SIZE'
+          ? HttpStatus.PAYLOAD_TOO_LARGE
+          : HttpStatus.BAD_REQUEST;
+
+      console.error('文件上传失败：', exception.code);
       response.status(status).json({
         code: status,
-        message: this.getHttpExceptionMessage(exception, exceptionResponse),
+        message:
+          status === HttpStatus.PAYLOAD_TOO_LARGE
+            ? '文件大小超出限制'
+            : '文件上传失败',
       } satisfies ErrorResponse);
       return;
     }
@@ -95,6 +137,41 @@ export class HttpExceptionFilter implements ExceptionFilter<unknown> {
     }
 
     return exception.message;
+  }
+
+  private getHttpExceptionDetails(
+    exceptionResponse: string | object,
+  ): unknown | undefined {
+    if (
+      !this.isRecord(exceptionResponse) ||
+      !Object.prototype.hasOwnProperty.call(exceptionResponse, 'details')
+    ) {
+      return undefined;
+    }
+
+    return exceptionResponse.details;
+  }
+
+  private normalizeTransformedMulterMessage(
+    status: number,
+    message: string,
+  ): string {
+    // Nest FileInterceptor 会先把常见 MulterError 转成 HttpException。
+    if (
+      status === HttpStatus.PAYLOAD_TOO_LARGE &&
+      message === 'File too large'
+    ) {
+      return '文件大小超出限制';
+    }
+
+    if (
+      status === HttpStatus.BAD_REQUEST &&
+      TRANSFORMED_MULTER_BAD_REQUEST_MESSAGES.has(message)
+    ) {
+      return '文件上传失败';
+    }
+
+    return message;
   }
 
   private isRecord(value: unknown): value is Record<string, unknown> {

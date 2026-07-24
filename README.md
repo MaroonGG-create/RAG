@@ -24,6 +24,17 @@ pnpm --filter web dev
 
 后端默认运行于 `http://localhost:3000`，前端默认运行于 `http://localhost:5173`。
 
+文档上传还会读取根目录 `.env` 中的以下配置：
+
+```dotenv
+UPLOAD_DIR=./uploads
+MAX_FILE_SIZE_MB=20
+```
+
+相对 `UPLOAD_DIR` 会解析到 `server` 项目根目录；默认文件存放在
+`server/uploads/{knowledgeBaseId}/`，上传临时文件位于 `server/uploads/.tmp/`。
+磁盘文件使用 UUID 命名，原始文件名仅保存在数据库元数据中。
+
 ## 接口文档
 
 Swagger 地址：`http://localhost:3000/api/docs`
@@ -44,6 +55,26 @@ curl http://localhost:3000/api/knowledge-bases/1
 
 # 删除知识库
 curl -X DELETE http://localhost:3000/api/knowledge-bases/1
+```
+
+## 文档接口
+
+当前支持 PDF、Markdown 和 TXT 单文件上传。上传成功返回 `202 Accepted`，
+文档状态为 `pending`；文本解析、切片和向量化不属于当前阶段。
+
+```bash
+# 上传文档
+curl -X POST http://localhost:3000/api/knowledge-bases/1/documents \
+  -F "file=@./example.pdf"
+
+# 获取知识库下的文档列表
+curl http://localhost:3000/api/knowledge-bases/1/documents
+
+# 获取文档元数据详情
+curl http://localhost:3000/api/documents/1
+
+# 删除文档
+curl -X DELETE http://localhost:3000/api/documents/1
 ```
 
 ## 数据库迁移

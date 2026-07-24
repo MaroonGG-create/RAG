@@ -153,11 +153,11 @@ POST /api/chat/stream {knowledgeBaseId, question, conversationId?}
 | 字段 | 类型 | 说明 |
 |---|---|---|
 | id | INT UNSIGNED PK | |
-| name | VARCHAR(100) NOT NULL | 知识库名，同库不重名约束由应用层校验 |
+| name | VARCHAR(100) NOT NULL | 知识库名；重名控制 = 应用层预检 + DB 唯一约束兜底（v1.2 修订） |
 | description | VARCHAR(500) NULL | |
-| document_count | INT DEFAULT 0 | 冗余统计，文档增删时维护 |
+| document_count | INT UNSIGNED DEFAULT 0 | 冗余统计，文档增删时维护 |
 
-索引：`idx_name(name)`
+唯一约束：`uk_name(name)`（**v1.2 修订**：原为普通索引 `idx_name`，升级为唯一索引防并发重名；表 collation 为 `utf8mb4_unicode_ci`，重名判定**大小写不敏感**，应用层预检与唯一索引行为一致）
 
 ### 5.2 document（文档）
 
@@ -487,3 +487,20 @@ mini-rag/
 | 4 | `document_chunk.kb_id` 明确为**不设外键的冗余列** | chunk 生命周期完全跟随 document（FK 级联），kb_id 仅为按库直查的查询冗余，避免重复级联路径与跨表更新歧义 |
 | 5 | 统一响应结构明确为：成功 `{ code: 0, message: 'success', data }`、错误 `{ code, message, details? }`（code = HTTP 状态码） | 原 §9 只定义了错误结构，成功结构在 T02 补齐 |
 | 6 | schema 管理方式确定为 **migration（synchronize 固定 false）** | 原方案" synchronize 仅限开发"表述在 T02 收紧为完全禁用，表结构只能经 migration 变更 |
+
+### v1.2（T03 设计时修订，项目负责人确认）
+
+| # | 变更 | 原因 |
+|---|---|---|
+| 1 | `knowledge_base` 索引 `idx_name(name)` → 唯一约束 `uk_name(name)` | 重名控制从纯应用层校验升级为"应用层预检 + DB 唯一约束兜底"，防止并发创建产生重名；唯一索引同时承担按名查询，原普通索引冗余故移除。由独立新 migration 添加，不修改 InitSchema |
+| 2 | 明确重名判定大小写规则：大小写**不敏感** | 表 collation 为 `utf8mb4_unicode_ci`，唯一索引与 `WHERE name = ?` 均大小写不敏感，两层行为一致，无需额外处理 |
+| 3 | 全局 `ValidationPipe` 开启 `transform: true` | DTO 的 `@Transform`（如 name trim）只有在 transform 开启后才作用于控制器收到的值 |
+
+### v1.3（T04 设计时修订，项目负责人确认）
+
+| # | 变更 | 原因 |
+|---|---|---|
+| 1 | 统一错误结构增强：全局过滤器对 `HttpException` 响应体中显式携带的 `details` 字段予以透传 | T04 重复文件 409 需要在 `details` 中返回已有文档摘要（id/fileName/status）；基础结构 `{code,message}` 不变，无 details 时行为与之前完全一致 |
+| 2 | 错误码段位补充：**415**（文件类型/内容不支持）、**413**（文件超过大小限制） | 原 §9 段位未覆盖上传场景；类型错误选定 415 并在全项目保持一致，不允许 400/415 混用 |
+| 3 | Multer 错误映射规则：`MulterError: LIMIT_FILE_SIZE` → 413，其余 MulterError → 400 | Multer 错误默认会落入未知异常分支变 500，不符合契约；过滤器新增专门分支 |
+| 4 | 文档详情接口（§9 #8）分两阶段交付：T04 仅返回元数据，T05 增量加入切片预览 | 切片依赖 T05 解析流水线，提前实现会产生假数据 |

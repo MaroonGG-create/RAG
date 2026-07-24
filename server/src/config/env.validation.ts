@@ -57,6 +57,18 @@ class EnvironmentVariables {
     protocols: ['http', 'https'],
   })
   QDRANT_URL!: string;
+
+  @IsDefined()
+  @IsString()
+  @IsNotEmpty()
+  UPLOAD_DIR!: string;
+
+  @IsDefined()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(1024)
+  MAX_FILE_SIZE_MB!: number;
 }
 
 export function validateEnvironment(

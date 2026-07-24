@@ -1,24 +1,28 @@
 # Mini RAG 当前实现快照
 
 > 快照日期：2026-07-24（Asia/Shanghai）  
+> 快照时间：约 14:42 +08:00  
 > 工作区：`D:\Users\Documents\RAG`  
-> 对应阶段：T02 数据库实体与后端基础能力完成后  
-> 信息来源：当前工作树中的真实源码、Git 差异、实际执行的构建/类型检查/migration 命令、MySQL `information_schema` 查询、Docker 状态与 HTTP 请求。  
-> 本文是实现快照，不以任务说明中的预期结果代替实际结果。T02 验收明细见 `docs/reports/task-02-completion.md`。
+> 当前提交：`d99e8ce90c6980159955d6adfa928e650bf2be17`（`feat: 增删改查`）  
+> 对应阶段：T03 知识库 CRUD 完成后  
+> 信息来源：当前真实源码、Git 提交差异、MySQL `information_schema`/`SHOW INDEX`、实际 migration/build/type-check、完整 HTTP 接口矩阵和 Swagger 请求。  
+> T03 详细验收见 `docs/reports/task-03-completion.md`。
 
 ## 1. 当前结论
 
-- T02 要求的 6 个实体、显式实体注册、独立 CLI DataSource、首个 migration、`DatabaseModule`、`DatabaseService`、健康检查调整、统一异常过滤器、统一响应拦截器、`SkipResponseWrap` 机制和前端 Axios 解包均已存在。
-- Nest 运行时和 CLI DataSource 的 `synchronize` 都是 `false`。
-- 2026-07-24 本次实际执行的后端构建、前端类型检查以及 migration `run → revert → run` 均以退出码 `0` 完成。
-- 当前 Compose MySQL 和 Qdrant 均为 `healthy`；Windows `MySQL80` 服务为 `Stopped`，当前没有 3306 冲突。
-- `mini_rag` 中当前实际存在 6 张业务表和 TypeORM 的 `migrations` 表；索引、3 个唯一约束、5 个外键及级联规则均与 T02 数据模型一致。
-- `GET /api/health` 当前实际返回 HTTP 200，响应经过统一包装，`data.db` 为 `"up"`。
-- T03 尚未开始：没有知识库/文档/会话业务 controller、service、DTO、repository，也没有上传、解析、Embedding、RAG 或 SSE 端点。
+- T01/T02 的工程骨架、数据库实体和后端基础能力继续存在。
+- T03 新增了 `KnowledgeBaseModule`，实现知识库创建、列表、详情和删除 4 个后端接口。
+- `CreateKnowledgeBaseDto`、`KnowledgeBaseResponseDto`、`KnowledgeBaseService`、`KnowledgeBaseController`、`KnowledgeBaseModule`、`ParsePositiveIntPipe` 均已落地。
+- `knowledge_base.name` 已从普通索引 `idx_name` 升级为唯一约束 `uk_name`。
+- 当前共有 2 条 migration，均已执行；再次运行 migration 的真实结果为 `No migrations are pending`。
+- Swagger UI 位于 `/api/docs`，OpenAPI JSON 位于 `/api/docs-json`，只暴露 health 与 knowledge-bases。
+- T03 全部指定接口场景已实际通过；并发同名得到 201/409，无 500；DELETE 204 严格空体。
+- 本次验收测试数据已全部清理，6 张业务表当前均为 0 行，migration 记录保留 2 条。
+- 没有实现 T04：不存在文档上传/管理接口、处理流程、Qdrant 客户端、Embedding、Chat、SSE、会话接口或前端知识库页面。
 
 ## 2. 当前完整工程目录
 
-以下列出当前维护的工程文件；排除 `.git/`、`node_modules/`、构建生成的 `server/dist/` 和其他缓存。`.agents/` 是当前为空的本地工具目录；根 `.env` 被 Git 忽略。
+以下列出当前维护的工程文件；排除 `.git/`、各级 `node_modules/`、构建生成的 `server/dist/` 和其他缓存。根 `.env` 被 Git 忽略；`.agents/` 是空的本地工具目录。
 
 ```text
 RAG/
@@ -35,8 +39,10 @@ RAG/
 │  ├─ 01-current-implementation.md
 │  ├─ task-01-init-docker.md
 │  ├─ task-02-database-core.md
+│  ├─ task-03-knowledge-base-crud.md
 │  └─ reports/
-│     └─ task-02-completion.md
+│     ├─ task-02-completion.md
+│     └─ task-03-completion.md
 ├─ server/
 │  ├─ nest-cli.json
 │  ├─ package.json
@@ -50,8 +56,10 @@ RAG/
 │     │  │  └─ skip-response-wrap.decorator.ts
 │     │  ├─ filters/
 │     │  │  └─ http-exception.filter.ts
-│     │  └─ interceptors/
-│     │     └─ response.interceptor.ts
+│     │  ├─ interceptors/
+│     │  │  └─ response.interceptor.ts
+│     │  └─ pipes/
+│     │     └─ parse-positive-int.pipe.ts
 │     ├─ config/
 │     │  ├─ configuration.ts
 │     │  └─ env.validation.ts
@@ -62,7 +70,8 @@ RAG/
 │     │  ├─ entities.ts
 │     │  ├─ typeorm.config.ts
 │     │  └─ migrations/
-│     │     └─ 1784800736682-InitSchema.ts
+│     │     ├─ 1784800736682-InitSchema.ts
+│     │     └─ 1784871996843-AddKnowledgeBaseNameUnique.ts
 │     └─ modules/
 │        ├─ conversation/
 │        │  └─ entities/
@@ -78,8 +87,14 @@ RAG/
 │        │  ├─ health.module.ts
 │        │  └─ health.service.ts
 │        └─ knowledge-base/
-│           └─ entities/
-│              └─ knowledge-base.entity.ts
+│           ├─ dto/
+│           │  ├─ create-knowledge-base.dto.ts
+│           │  └─ knowledge-base-response.dto.ts
+│           ├─ entities/
+│           │  └─ knowledge-base.entity.ts
+│           ├─ knowledge-base.controller.ts
+│           ├─ knowledge-base.module.ts
+│           └─ knowledge-base.service.ts
 └─ web/
    ├─ env.d.ts
    ├─ index.html
@@ -100,9 +115,299 @@ RAG/
 
 根目录仍没有 `package.json`。`pnpm-workspace.yaml` 只包含 `server` 和 `web` 两个 workspace。
 
-## 3. 6 个实体的真实路径与注册方式
+用户提到的 `docs/tasks/task-03-knowledge-base-crud.md` 不存在；实际任务文档在 `docs/task-03-knowledge-base-crud.md`。
 
-| 实体类 | 实际表名 | 实际文件路径 |
+## 3. 后端模块与启动配置
+
+### 3.1 AppModule
+
+`server/src/app.module.ts` 当前导入顺序：
+
+1. `ConfigModule.forRoot(...)`
+2. `TypeOrmModule.forRootAsync(...)`
+3. `DatabaseModule`
+4. `HealthModule`
+5. `KnowledgeBaseModule`
+
+### 3.2 main.ts
+
+当前全局配置：
+
+- 全局前缀：`api`
+- ValidationPipe：
+  - `whitelist: true`
+  - `transform: true`
+- 全局 `HttpExceptionFilter`
+- 全局 `ResponseInterceptor`
+- CORS origin 取 `server.corsOrigin`
+- Swagger：
+  - title：`Mini RAG API`
+  - version：`0.1.0`
+  - setup path：`docs`
+  - `useGlobalPrefix: true`
+- 监听 `server.port`
+- bootstrap 失败时记录错误并退出
+
+T03 新增的 `transform: true` 是 DTO `@Transform(trim)` 生效的前提。
+
+### 3.3 当前模块范围
+
+已有业务 Module：
+
+- `HealthModule`
+- `KnowledgeBaseModule`
+
+Document 和 Conversation 目录当前只有 T02 实体，没有 module/controller/service。
+
+## 4. KnowledgeBaseModule 当前结构
+
+位置：
+
+```text
+server/src/modules/knowledge-base/
+├─ dto/
+│  ├─ create-knowledge-base.dto.ts
+│  └─ knowledge-base-response.dto.ts
+├─ entities/
+│  └─ knowledge-base.entity.ts
+├─ knowledge-base.controller.ts
+├─ knowledge-base.module.ts
+└─ knowledge-base.service.ts
+```
+
+`KnowledgeBaseModule`：
+
+```ts
+@Module({
+  imports: [TypeOrmModule.forFeature([KnowledgeBase])],
+  controllers: [KnowledgeBaseController],
+  providers: [KnowledgeBaseService],
+})
+export class KnowledgeBaseModule {}
+```
+
+模块没有导出 Service，也没有注册 T04 或其他 repository。
+
+## 5. 当前四个知识库接口
+
+| 方法 | 实际路径 | 成功状态 | 当前行为 |
+|---|---|---:|---|
+| POST | `/api/knowledge-bases` | 201 | trim、校验、重名预检、创建、返回 ResponseDto |
+| GET | `/api/knowledge-bases` | 200 | 按 `createdAt DESC, id DESC` 返回全部知识库 |
+| GET | `/api/knowledge-bases/:id` | 200 | 正整数 id；不存在返回 404 |
+| DELETE | `/api/knowledge-bases/:id` | 204 | 存在性检查后物理删除；严格空响应体 |
+
+当前没有：
+
+- PUT/PATCH 更新接口
+- 分页参数或分页响应
+- 关系加载
+- 鉴权
+
+### 5.1 普通成功响应
+
+POST/GET 的业务结果由全局拦截器包装：
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {}
+}
+```
+
+列表时 `data` 为数组。
+
+### 5.2 创建实际行为
+
+本次创建“产品文档库”的真实结果：
+
+- HTTP 201
+- `code=0`
+- `name="产品文档库"`
+- `description="产品相关资料"`
+- `documentCount=0`
+- `createdAt`、`updatedAt` 均存在
+
+### 5.3 DELETE 实际行为
+
+存在 id：
+
+```text
+HTTP 204
+body bytes = 0
+Content-Type = absent
+Content-Length = absent
+```
+
+不存在 id：
+
+```json
+{
+  "code": 404,
+  "message": "知识库不存在"
+}
+```
+
+## 6. DTO 当前实现
+
+### 6.1 CreateKnowledgeBaseDto
+
+位置：`server/src/modules/knowledge-base/dto/create-knowledge-base.dto.ts`
+
+| 字段 | 类型 | 处理与校验 |
+|---|---|---|
+| `name` | `string` | 字符串 trim；`IsString`；`IsNotEmpty`；`MaxLength(100)` |
+| `description` | `string?` | 字符串 trim；`IsOptional`；`IsString`；`MaxLength(500)` |
+
+真实验收：
+
+- `"  研发资料  "` 保存为 `"研发资料"`。
+- `"  内部资料  "` 保存为 `"内部资料"`。
+- description 只含空格时保存为 `null`。
+- 缺 name、空串、全空格、101 字符 name、501 字符 description 均返回 HTTP 400。
+- 校验失败结构为 `{ code: 400, message: '参数校验失败', details: [...] }`。
+
+### 6.2 KnowledgeBaseResponseDto
+
+位置：`server/src/modules/knowledge-base/dto/knowledge-base-response.dto.ts`
+
+只包含：
+
+```text
+id
+name
+description
+documentCount
+createdAt
+updatedAt
+```
+
+`static fromEntity()` 逐字段映射，时间调用 `toISOString()`。不会返回 `documents`、`conversations` 或实体中的其他关系。
+
+## 7. KnowledgeBaseService 当前方法
+
+位置：`server/src/modules/knowledge-base/knowledge-base.service.ts`
+
+### 7.1 `create(dto)`
+
+流程：
+
+1. 使用 DTO 已 trim 的 `name`。
+2. `description = dto.description?.trim() || null`。
+3. `findOne({ where: { name } })` 做重名预检。
+4. 命中时抛 `ConflictException('知识库名称已存在')`。
+5. `repository.create()` + `repository.save()`。
+6. save 撞唯一索引时识别 `ER_DUP_ENTRY` 并转为同一个 ConflictException。
+7. 使用 `KnowledgeBaseResponseDto.fromEntity()` 返回。
+
+### 7.2 `findAll()`
+
+```ts
+repository.find({
+  order: { createdAt: 'DESC', id: 'DESC' },
+})
+```
+
+不写 `relations`，不加载 relation；随后逐项映射 ResponseDto。
+
+### 7.3 `findOne(id)`
+
+按 id 查询；未找到时抛：
+
+```ts
+new NotFoundException('知识库不存在')
+```
+
+### 7.4 `remove(id)`
+
+先复用 `findOne(id)` 确认存在，再调用：
+
+```ts
+repository.delete(id)
+```
+
+方法包含一条“T08+ 先清理 Qdrant 再删 MySQL”的未来注释，没有任何实际 Qdrant 调用。
+
+## 8. 重名、并发和 collation
+
+### 8.1 应用层预检
+
+预检使用：
+
+```ts
+repository.findOne({ where: { name } })
+```
+
+命中返回 HTTP 409：
+
+```json
+{
+  "code": 409,
+  "message": "知识库名称已存在"
+}
+```
+
+### 8.2 数据库并发兜底
+
+`isDuplicateEntryError(error: unknown)` 只在：
+
+```ts
+error instanceof QueryFailedError
+driverError.code === 'ER_DUP_ENTRY'
+```
+
+时返回 true。这样并发撞 `uk_name` 不会落入全局 QueryFailedError 的 500 分支。
+
+本次两个并发同名 POST 的实际结果：
+
+```text
+201
+409
+```
+
+没有 500。未加运行日志，因此不能从黑盒结果区分 409 来自预检还是 save 兜底。
+
+### 8.3 大小写重名
+
+`knowledge_base` 表和 `name` 列实际 collation 都是 `utf8mb4_unicode_ci`。
+
+实测：
+
+```text
+TestLib → 201
+testlib → 409
+```
+
+## 9. ParsePositiveIntPipe
+
+位置：`server/src/common/pipes/parse-positive-int.pipe.ts`
+
+当前实现：
+
+1. `Number(value)` 转换。
+2. 要求 `Number.isInteger(id)`。
+3. 要求 `id > 0`。
+4. 失败抛 `BadRequestException('id 必须是正整数')`。
+
+当前用于 GET detail 和 DELETE 的 `:id`。
+
+真实结果：
+
+| 输入 | HTTP | message |
+|---|---:|---|
+| `abc` | 400 | `id 必须是正整数` |
+| `0` | 400 | `id 必须是正整数` |
+| `-1` | 400 | `id 必须是正整数` |
+| 不存在的正整数 | 404 | `知识库不存在` |
+
+已知边界：`Number()` 会接受 `1e2`、`0x10`、`1.0` 等表示法，当前也没有显式限制 safe integer 或 `INT UNSIGNED` 上限。
+
+## 10. 数据库实体和表结构
+
+### 10.1 6 个实体实际路径
+
+| 实体 | 表 | 文件 |
 |---|---|---|
 | `KnowledgeBase` | `knowledge_base` | `server/src/modules/knowledge-base/entities/knowledge-base.entity.ts` |
 | `Document` | `document` | `server/src/modules/document/entities/document.entity.ts` |
@@ -111,492 +416,303 @@ RAG/
 | `Message` | `message` | `server/src/modules/conversation/entities/message.entity.ts` |
 | `MessageReference` | `message_reference` | `server/src/modules/conversation/entities/message-reference.entity.ts` |
 
-`server/src/database/entities.ts` 中的 `AppEntities` 显式列出以上 6 个实体。Nest TypeORM 配置与 CLI DataSource 共用该数组，不使用 `autoLoadEntities` 或目录通配发现实体。
+6 个实体仍由 `server/src/database/entities.ts` 的 `AppEntities` 显式注册。
 
-所有实体关系均保持非 eager；没有 `eager: true`，也没有应用层保存用的 `cascade: true`。级联删除只由实体关系中的 `onDelete: 'CASCADE'` 和数据库外键实现。
+### 10.2 当前表字段
 
-## 4. 实际数据库表、字段与索引
+| 表 | 当前实际字段 |
+|---|---|
+| `knowledge_base` | `id`, `name`, `description`, `document_count`, `created_at`, `updated_at` |
+| `document` | `id`, `kb_id`, `file_name`, `file_ext`, `file_size`, `file_hash`, `storage_path`, `status`, `error_message`, `chunk_count`, `created_at`, `updated_at` |
+| `document_chunk` | `id`, `document_id`, `kb_id`, `chunk_index`, `content`, `char_count`, `page_no`, `qdrant_point_id`, `created_at`, `updated_at` |
+| `conversation` | `id`, `kb_id`, `title`, `created_at`, `updated_at` |
+| `message` | `id`, `conversation_id`, `role`, `content`, `status`, `error_message`, `created_at`, `updated_at` |
+| `message_reference` | `id`, `message_id`, `document_id`, `chunk_id`, `document_name`, `chunk_index`, `page_no`, `score`, `content_snapshot`, `created_at`, `updated_at` |
+| `migrations` | `id`, `timestamp`, `name` |
 
-以下类型、可空性和默认值来自 2026-07-24 对 `mini_rag` 的 `information_schema` 实查。6 张业务表均为 `InnoDB`、`utf8mb4_unicode_ci`。
+6 张业务表仍为 `InnoDB`、`utf8mb4_unicode_ci`；T03 没有变更任何字段或外键。
 
-### 4.1 `knowledge_base`
+### 10.3 knowledge_base 索引
 
-| 字段 | 实际类型 | NULL | 默认/附加 |
-|---|---|---:|---|
-| `id` | `int unsigned` | 否 | PK，`auto_increment` |
-| `name` | `varchar(100)` | 否 | — |
-| `description` | `varchar(500)` | 是 | `NULL` |
-| `document_count` | `int unsigned` | 否 | `0` |
-| `created_at` | `timestamp(6)` | 否 | `CURRENT_TIMESTAMP(6)` |
-| `updated_at` | `timestamp(6)` | 否 | `CURRENT_TIMESTAMP(6)`，更新时自动刷新 |
-
-索引：
-
-- `PRIMARY(id)`
-- 普通索引 `idx_name(name)`
-
-### 4.2 `document`
-
-| 字段 | 实际类型 | NULL | 默认/附加 |
-|---|---|---:|---|
-| `id` | `int unsigned` | 否 | PK，`auto_increment` |
-| `kb_id` | `int unsigned` | 否 | FK → `knowledge_base.id` |
-| `file_name` | `varchar(255)` | 否 | — |
-| `file_ext` | `varchar(10)` | 否 | 列注释说明由应用层限制 `pdf/md/txt` |
-| `file_size` | `bigint unsigned` | 否 | — |
-| `file_hash` | `char(64)` | 否 | — |
-| `storage_path` | `varchar(500)` | 否 | — |
-| `status` | `enum('pending','parsing','chunking','embedding','completed','failed')` | 否 | `'pending'` |
-| `error_message` | `text` | 是 | `NULL` |
-| `chunk_count` | `int unsigned` | 否 | `0` |
-| `created_at` | `timestamp(6)` | 否 | `CURRENT_TIMESTAMP(6)` |
-| `updated_at` | `timestamp(6)` | 否 | `CURRENT_TIMESTAMP(6)`，更新时自动刷新 |
-
-索引/约束：
-
-- `PRIMARY(id)`
-- 唯一约束 `uk_kb_hash(kb_id, file_hash)`
-- 普通索引 `idx_kb_status(kb_id, status)`
-
-### 4.3 `document_chunk`
-
-| 字段 | 实际类型 | NULL | 默认/附加 |
-|---|---|---:|---|
-| `id` | `int unsigned` | 否 | PK，`auto_increment` |
-| `document_id` | `int unsigned` | 否 | FK → `document.id` |
-| `kb_id` | `int unsigned` | 否 | 无 FK 冗余列 |
-| `chunk_index` | `int unsigned` | 否 | — |
-| `content` | `text` | 否 | — |
-| `char_count` | `int unsigned` | 否 | — |
-| `page_no` | `int unsigned` | 是 | `NULL` |
-| `qdrant_point_id` | `char(36)` | 否 | — |
-| `created_at` | `timestamp(6)` | 否 | `CURRENT_TIMESTAMP(6)` |
-| `updated_at` | `timestamp(6)` | 否 | `CURRENT_TIMESTAMP(6)`，更新时自动刷新 |
-
-索引/约束：
-
-- `PRIMARY(id)`
-- 唯一约束 `uk_doc_index(document_id, chunk_index)`
-- 唯一约束 `uk_qdrant_point(qdrant_point_id)`
-- 普通索引 `idx_kb(kb_id)`
-
-### 4.4 `conversation`
-
-| 字段 | 实际类型 | NULL | 默认/附加 |
-|---|---|---:|---|
-| `id` | `int unsigned` | 否 | PK，`auto_increment` |
-| `kb_id` | `int unsigned` | 否 | FK → `knowledge_base.id` |
-| `title` | `varchar(200)` | 否 | — |
-| `created_at` | `timestamp(6)` | 否 | `CURRENT_TIMESTAMP(6)` |
-| `updated_at` | `timestamp(6)` | 否 | `CURRENT_TIMESTAMP(6)`，更新时自动刷新 |
-
-索引：
-
-- `PRIMARY(id)`
-- 普通索引 `idx_kb(kb_id)`
-
-### 4.5 `message`
-
-| 字段 | 实际类型 | NULL | 默认/附加 |
-|---|---|---:|---|
-| `id` | `int unsigned` | 否 | PK，`auto_increment` |
-| `conversation_id` | `int unsigned` | 否 | FK → `conversation.id` |
-| `role` | `enum('user','assistant')` | 否 | 无默认值 |
-| `content` | `text` | 否 | — |
-| `status` | `enum('completed','failed')` | 否 | `'completed'` |
-| `error_message` | `text` | 是 | `NULL` |
-| `created_at` | `timestamp(6)` | 否 | `CURRENT_TIMESTAMP(6)` |
-| `updated_at` | `timestamp(6)` | 否 | `CURRENT_TIMESTAMP(6)`，更新时自动刷新 |
-
-索引：
-
-- `PRIMARY(id)`
-- 普通索引 `idx_conv(conversation_id, id)`
-
-### 4.6 `message_reference`
-
-| 字段 | 实际类型 | NULL | 默认/附加 |
-|---|---|---:|---|
-| `id` | `int unsigned` | 否 | PK，`auto_increment` |
-| `message_id` | `int unsigned` | 否 | FK → `message.id` |
-| `document_id` | `int unsigned` | 是 | 无 FK 快照列，默认 `NULL` |
-| `chunk_id` | `int unsigned` | 是 | 无 FK 快照列，默认 `NULL` |
-| `document_name` | `varchar(255)` | 否 | — |
-| `chunk_index` | `int unsigned` | 否 | — |
-| `page_no` | `int unsigned` | 是 | `NULL` |
-| `score` | `decimal(5,4)` | 否 | — |
-| `content_snapshot` | `text` | 否 | — |
-| `created_at` | `timestamp(6)` | 否 | `CURRENT_TIMESTAMP(6)` |
-| `updated_at` | `timestamp(6)` | 否 | `CURRENT_TIMESTAMP(6)`，更新时自动刷新 |
-
-索引：
-
-- `PRIMARY(id)`
-- 普通索引 `idx_msg(message_id)`
-
-`score` 的实体属性类型为 `number`。列 transformer 的 `from` 将 mysql2 默认返回的 DECIMAL 字符串转为 `number`，`to` 保持数值写入。
-
-### 4.7 TypeORM `migrations` 表
-
-该表由 TypeORM 自动创建和维护，不属于 6 个业务实体：
-
-| 字段 | 实际类型 | NULL | 默认/附加 |
-|---|---|---:|---|
-| `id` | `int` | 否 | PK，`auto_increment` |
-| `timestamp` | `bigint` | 否 | — |
-| `name` | `varchar(255)` | 否 | — |
-
-当前唯一记录为：
+当前实查：
 
 ```text
-id=2
-timestamp=1784800736682
-name=InitSchema1784800736682
+PRIMARY(id), Non_unique=0
+uk_name(name), Non_unique=0
 ```
 
-`id=2` 是本次先回滚再重新执行 migration 后的真实自增值。
+`idx_name` 已不存在。
 
-## 5. 外键和级联规则
+### 10.4 其他索引/约束
 
-当前数据库实查共有 5 条外键，删除规则均为 `CASCADE`，更新规则均为 `NO ACTION`：
+T03 后总计：
 
-| 子表字段 | 父表字段 | 实际约束名 | ON DELETE |
-|---|---|---|---|
-| `document.kb_id` | `knowledge_base.id` | `FK_de194591c1b6476246598f17347` | `CASCADE` |
-| `document_chunk.document_id` | `document.id` | `FK_13fe21b6cbdda6d223de93c1b4b` | `CASCADE` |
-| `conversation.kb_id` | `knowledge_base.id` | `FK_6c46eb6af21906b5de097dad0db` | `CASCADE` |
-| `message.conversation_id` | `conversation.id` | `FK_7fe3e887d78498d9c9813375ce2` | `CASCADE` |
-| `message_reference.message_id` | `message.id` | `FK_13ab388ba9004222977d552f832` | `CASCADE` |
+- 业务唯一约束/索引 4 个：
+  - `knowledge_base.uk_name`
+  - `document.uk_kb_hash`
+  - `document_chunk.uk_doc_index`
+  - `document_chunk.uk_qdrant_point`
+- 命名普通业务索引 5 个：
+  - `document.idx_kb_status`
+  - `document_chunk.idx_kb`
+  - `conversation.idx_kb`
+  - `message.idx_conv`
+  - `message_reference.idx_msg`
+- 外键 5 条，仍全部 `ON DELETE CASCADE`。
 
-`document_chunk.kb_id`、`message_reference.document_id`、`message_reference.chunk_id` 在实际数据库中均没有外键，符合冗余查询列/历史快照列的设计。
+## 11. TypeORM 与 Migration
 
-## 6. TypeORM 当前配置
+### 11.1 当前 TypeORM 配置
 
-### 6.1 Nest 运行时配置
+Nest 运行时：
 
-位置：`server/src/database/typeorm.config.ts`
-
-实际配置：
-
-```ts
-{
-  type: 'mysql',
-  host,
-  port,
-  username,
-  password,
-  database,
-  entities: AppEntities,
-  migrations: [resolve(__dirname, 'migrations/*{.ts,.js}')],
-  synchronize: false,
-  manualInitialization: true,
-}
-```
-
-关键结论：
-
-- `synchronize` 实际为 `false`，并有“禁止改为 true，表结构只能经 migration 变更”的中文注释。
-- `manualInitialization` 实际为 `true`，连接和 migration 就绪流程由 `DatabaseService` 驱动。
-- 没有 `migrationsRun`；启动迁移由 `DatabaseService.runMigrations()` 显式执行。
-- 没有 `autoLoadEntities`、naming strategy 或第二套 Nest 数据库连接。
-
-### 6.2 Nest 环境变量加载
-
-`server/src/app.module.ts` 的 `ConfigModule.forRoot()` 使用：
-
-```ts
-envFilePath: resolve(process.cwd(), '../.env')
-```
-
-通过 `pnpm --filter server ...` 执行时 cwd 为 `server/`，因此可加载仓库根 `.env`。该实现仍依赖 cwd，属于已知问题。
-
-`server/src/config/env.validation.ts` 当前校验：
-
-- `SERVER_PORT`
-- `CORS_ORIGIN`
-- `DB_HOST`
-- `DB_PORT`
-- `DB_USER`
-- `DB_PASSWORD`
-- `DB_NAME`
-- `QDRANT_URL`
-
-`QDRANT_URL` 要求带 `http` 或 `https` 协议，允许本地地址且不要求 TLD。
-
-## 7. CLI DataSource、migration 与 scripts
-
-### 7.1 CLI DataSource
-
-位置：`server/src/database/data-source.ts`
-
-文件顶部执行：
-
-```ts
-dotenv.config({ path: resolve(__dirname, '../../../.env') })
-```
-
-源码态 `server/src/database/` 和编译态 `server/dist/database/` 向上三级都指向仓库根，因此该路径不依赖执行命令时的 cwd。
+- `entities: AppEntities`
+- `migrations: migrations/*{.ts,.js}`
+- `synchronize: false`
+- `manualInitialization: true`
 
 CLI DataSource：
 
-- 直接从 `process.env` 读取 MySQL 配置；
-- 使用 `AppEntities`；
-- migration glob 为 `migrations/*{.ts,.js}`；
-- `synchronize: false`；
-- 不 import Nest 模块或装饰器。
+- 位置：`server/src/database/data-source.ts`
+- `dotenv.config({ path: resolve(__dirname, '../../../.env') })`
+- 共用 `AppEntities`
+- `synchronize: false`
 
-### 7.2 Migration 文件
+### 11.2 当前 Migration
 
-当前唯一 migration：
+1. `server/src/database/migrations/1784800736682-InitSchema.ts`
+2. `server/src/database/migrations/1784871996843-AddKnowledgeBaseNameUnique.ts`
+
+T03 Migration：
 
 ```text
-server/src/database/migrations/1784800736682-InitSchema.ts
+up:   DROP idx_name → CREATE UNIQUE uk_name(name)
+down: DROP uk_name  → CREATE ordinary idx_name(name)
 ```
 
-`up()` 创建 6 张业务表、3 个唯一索引、6 个命名普通索引和 5 条外键；`down()` 先删除 5 条外键，再完整删除 6 张业务表。
+没有其他 schema 变化。T02 InitSchema 在 T02 基线和当前 HEAD 的 blob 相同，确认未修改。
 
-### 7.3 实际 migration scripts
+### 11.3 当前 migration 状态
 
-`server/package.json` 当前脚本：
+`migration:show`：
 
-```json
-{
-  "typeorm": "typeorm-ts-node-commonjs -d src/database/data-source.ts",
-  "migration:generate": "pnpm run typeorm migration:generate",
-  "migration:run": "pnpm run typeorm migration:run",
-  "migration:revert": "pnpm run typeorm migration:revert",
-  "migration:show": "pnpm run typeorm migration:show"
-}
+```text
+[X] 2 InitSchema1784800736682
+[X] 3 AddKnowledgeBaseNameUnique1784871996843
 ```
 
-当前相关依赖为：
+`migration:run`：
 
-- dependencies：`dotenv ^16.4.5`
-- devDependencies：`ts-node ^10.9.2`
-
-## 8. DatabaseModule 与 DatabaseService
-
-### 8.1 DatabaseModule
-
-位置：`server/src/database/database.module.ts`
-
-实际实现只注册并导出 `DatabaseService`：
-
-```ts
-@Module({
-  providers: [DatabaseService],
-  exports: [DatabaseService],
-})
-export class DatabaseModule {}
+```text
+No migrations are pending
 ```
 
-`AppModule` 在 `HealthModule` 之前导入 `DatabaseModule`；`HealthModule` 也显式导入 `DatabaseModule`。
+## 12. DatabaseModule、健康检查与统一响应
 
-### 8.2 DatabaseService
+### 12.1 DatabaseModule / DatabaseService
 
-位置：`server/src/database/database.service.ts`
+T03 没有修改这两个文件。
 
-实际职责：
+`DatabaseService` 仍负责：
 
-1. 实现 `OnApplicationBootstrap`，应用启动时调用 `ensureReady()`。
-2. 数据库启动失败时只记录 `console.error`，不让 Nest 进程退出。
-3. `ensureReady()` 通过 `readinessPromise` 合并并发初始化。
-4. DataSource 未初始化时先执行 `initialize()`。
-5. 随后总是执行 `runMigrations()`，只有连接与 migration 都成功才返回 DataSource。
-6. 初始化或 migration 失败时清空共享 Promise，使后续健康请求可以重试。
-7. `invalidateReadiness()` 供健康检查在查询失败后清空就绪状态；下一次请求会重新确认 migration。
+- `OnApplicationBootstrap` 启动尝试；
+- 共享 readiness Promise；
+- DataSource initialize；
+- `runMigrations()`；
+- 失败清空 Promise以便健康请求重试；
+- 启动失败只记录日志，不退出应用。
 
-## 9. 健康检查当前实现
+### 12.2 健康检查
 
-路由仍为：
+路由：
 
 ```text
 GET /api/health
 ```
 
-`HealthService` 当前注入 `DatabaseService`，不再自行维护 DataSource 初始化 Promise。处理流程：
+`HealthService` 仍执行 `ensureReady()` 后 `SELECT 1`。当前实际为 HTTP 200、`data.db="up"`。
 
-1. `await databaseService.ensureReady()`；
-2. 使用返回的 DataSource 执行 `SELECT 1`；
-3. 成功返回 `{ status: 'ok', db: 'up', uptime }`；
-4. 失败时调用 `invalidateReadiness()`、记录错误，并返回 `{ status: 'ok', db: 'down', uptime }`；
-5. Controller 不抛出异常，因此数据库失败时仍保持 HTTP 200。
+T03 只给 `HealthController` 增加：
 
-普通成功响应会再被全局拦截器包装。本次实测响应：
+- `@ApiTags('health')`
+- `@ApiOperation(...)`
+
+未改健康逻辑。
+
+### 12.3 统一异常/成功结构
+
+T03 没有修改全局过滤器和拦截器。
+
+成功：
 
 ```json
-{
-  "code": 0,
-  "message": "success",
-  "data": {
-    "status": "ok",
-    "db": "up",
-    "uptime": 145.3559899
-  }
-}
+{ "code": 0, "message": "success", "data": {} }
 ```
 
-## 10. 统一异常过滤器
+错误：
 
-位置：`server/src/common/filters/http-exception.filter.ts`
+```json
+{ "code": 400, "message": "参数校验失败", "details": [] }
+```
 
-`HttpExceptionFilter` 使用 `@Catch()` 捕获所有异常，并在 `main.ts` 通过 `app.useGlobalFilters(new HttpExceptionFilter())` 全局注册。
+或：
 
-实际行为：
+```json
+{ "code": 404, "message": "知识库不存在" }
+```
 
-| 异常类型 | HTTP/`code` | 实际响应语义 |
-|---|---:|---|
-| `HttpException` | 异常自身状态码 | `{ code, message }` |
-| ValidationPipe 的字符串数组错误 | `400` | `{ code: 400, message: '参数校验失败', details }` |
-| `QueryFailedError` | `500` | `{ code: 500, message: '数据库操作失败' }`，完整异常只写服务端日志 |
-| 其他异常 | `500` | `{ code: 500, message: '服务器内部错误' }`，完整异常只写服务端日志 |
+DELETE 204 由 HTTP 响应层保持空体。
 
-本次实测：
+## 13. Swagger 当前配置
+
+依赖：
 
 ```text
-GET  /api/not-exist → HTTP 404 {"code":404,"message":"Cannot GET /api/not-exist"}
-POST /api/health    → HTTP 404 {"code":404,"message":"Cannot POST /api/health"}
+@nestjs/swagger ^8.1.0
 ```
 
-## 11. 统一响应拦截器与 SkipResponseWrap
+代码位置：`server/src/main.ts`
 
-### 11.1 ResponseInterceptor
+配置：
 
-位置：`server/src/common/interceptors/response.interceptor.ts`
+- title：`Mini RAG API`
+- description：说明非 SSE 成功接口使用统一 envelope，Schema 描述 `data` 部分
+- version：`0.1.0`
+- `SwaggerModule.setup('docs', ..., { useGlobalPrefix: true })`
 
-在 `main.ts` 中通过以下代码全局注册：
+实际地址：
 
-```ts
-app.useGlobalInterceptors(new ResponseInterceptor(new Reflector()))
+```text
+UI:   http://localhost:3000/api/docs
+JSON: http://localhost:3000/api/docs-json
 ```
 
-普通成功结果统一为：
+UI HTML、CSS、bundle、init 资源均实际返回 200。
 
-```json
-{ "code": 0, "message": "success", "data": "<原返回值；undefined/null 时为 null>" }
+OpenAPI 实际 paths：
+
+```text
+GET          /api/health
+GET, POST    /api/knowledge-bases
+GET, DELETE  /api/knowledge-bases/{id}
 ```
 
-以下情况原样透传：
+各 operation 的实际 tags（OpenAPI 根级 `tags` 字段未声明）：
 
-- handler 或 controller 命中 `@SkipResponseWrap()`；
-- 返回值是 `StreamableFile`；
-- Express response 已经 `headersSent`；
-- `content-type` 包含 `text/event-stream`。
-
-### 11.2 SkipResponseWrap
-
-位置：`server/src/common/decorators/skip-response-wrap.decorator.ts`
-
-实现使用：
-
-```ts
-SetMetadata('skipResponseWrap', true)
+```text
+health
+knowledge-bases
 ```
 
-拦截器通过 `Reflector.getAllAndOverride()` 同时检查 handler 和 controller。当前没有 SSE 端点，也没有业务 handler 使用该装饰器；T02 只落地排除机制，这与当前范围一致。
+没有 documents、chat、conversations、embedding 或 vector-store path。
 
-## 12. 前端 Axios 响应解包
+## 14. 前端当前实现
 
-位置：`web/src/api/http.ts`
+T03 没有修改 `web/`。
 
-成功拦截器先用 `isApiResponse()` 检查响应体是否同时满足：
+前端仍只有健康检查占位页：
 
-- 是非空对象；
-- `code` 是数字；
-- `message` 是字符串；
-- 存在 `data` 字段。
+- 无 Vue Router
+- 无 Pinia
+- 无知识库页面
+- 无知识库 API 文件
+- 无上传页面
 
-命中后执行：
+`web/src/api/http.ts` 仍负责统一 envelope 解包；Vite `/api` 代理仍固定指向 `http://localhost:3000`。
 
-```ts
-response.data = response.data.data
-```
+本次 `pnpm --filter web type-check` 退出码为 0。
 
-随后仍返回 AxiosResponse。这样 `web/src/api/health.ts` 无需改动，继续读取 `response.data` 即可得到内部 `HealthResult`。
+## 15. 当前运行和数据库状态
 
-错误拦截器对 AxiosError 优先使用服务端错误体的 `message`，其次使用 Axios 自身消息；普通 Error 保留其消息，未知值统一为“请求失败”。
+验收时：
 
-当前 `baseURL` 仍为：
-
-```ts
-import.meta.env.VITE_API_BASE_URL ?? '/api'
-```
-
-Vite 通过 `envDir: '..'` 加载根 `.env`，开发代理仍固定将 `/api` 转发至 `http://localhost:3000`。
-
-## 13. 当前数据库与服务运行状态
-
-快照时间：`2026-07-24 11:07:31 +08:00`
-
-| 项目 | 当前真实状态 |
+| 项目 | 实际状态 |
 |---|---|
-| Compose MySQL `rag-mysql-1` | `Up (healthy)`，映射 `3306:3306` |
-| Compose Qdrant `rag-qdrant-1` | `Up (healthy)`，映射 `6333:6333`、`6334:6334` |
-| Windows `MySQL80` | `Stopped` |
-| 3306 冲突 | 当前不存在；Compose MySQL 正在占用 3306 |
-| `mini_rag` 业务表 | 6 张全部存在 |
-| `migrations` 表 | 存在，1 条记录 |
-| 业务表当前行数 | 6 张表均为 `0` |
-| `GET /api/health` | HTTP 200，`data.db="up"` |
+| Compose MySQL | `Up (healthy)`，3306 |
+| Compose Qdrant | `Up (healthy)`，6333/6334 |
+| Windows `MySQL80` | `Stopped`，StartType=`Automatic` |
+| 后端 | `nest start --watch` 进程监听 3000 |
+| `GET /api/health` | HTTP 200，`db="up"` |
+| Migration | 2 条，均已执行 |
+| `knowledge_base` 索引 | `PRIMARY`、`uk_name` |
+| 6 张业务表行数 | 均为 0 |
+| `migrations` 行数 | 2 |
 
-当前实际表：
+本次测试通过 DELETE 接口清理，没有删除 migration 记录，没有重建数据库。
 
-```text
-conversation
-document
-document_chunk
-knowledge_base
-message
-message_reference
-migrations
-```
+## 16. 本次关键验收结果
 
-本次 migration 往返会删除并重建 6 张业务表，因此最终业务表为空；这是用户指定的 `migration:revert` 后再 `migration:run` 的结果。
+### 16.1 构建和 Migration
 
-## 14. 本次关键验证结果
-
-| 命令/检查 | 退出码 | 真实结果 |
+| 命令 | 退出码 | 结果 |
 |---|---:|---|
-| `pnpm --filter server build` | 0 | `nest build` 成功，无 TypeScript error |
+| `pnpm --filter server migration:show` | 0 | T02/T03 均 `[X]` |
+| `pnpm --filter server migration:run` | 0 | `No migrations are pending` |
+| `pnpm --filter server build` | 0 | `nest build` 成功 |
 | `pnpm --filter web type-check` | 0 | `vue-tsc --noEmit` 成功 |
-| 第一次 `pnpm --filter server migration:run` | 0 | `No migrations are pending` |
-| `pnpm --filter server migration:revert` | 0 | `InitSchema1784800736682 has been reverted successfully` |
-| 第二次 `pnpm --filter server migration:run` | 0 | 重新创建 6 表、5 外键并插入 migration 记录 |
-| `pnpm --filter server migration:show` | 0 | `[X] 2 InitSchema1784800736682` |
-| MySQL 表/列/索引/约束查询 | 0 | 7 表存在，字段、3 个唯一约束、6 个普通索引、5 个 CASCADE FK 均符合 |
-| `GET /api/health` | 0（curl） | HTTP 200，统一响应包装，`db="up"` |
-| 404 请求检查 | 0（curl） | GET/POST 均返回统一 `{ code, message }` |
 
-两条 pnpm 静态命令及 migration 命令仍会先输出：
+### 16.2 接口
 
-```text
-No projects matched the filters "D:\Users\Documents\RAG" in "D:\Users\Documents\RAG"
-```
+| 场景 | 实际结果 |
+|---|---|
+| 创建 | 201 |
+| name/description trim | 201，值正确 |
+| 空描述 | 201，保存为 null |
+| 5 类参数错误 | 均 400 |
+| 同名 | 409 |
+| 大小写同名 | 201/409 |
+| 并发同名 | 201/409，无 500 |
+| 列表 | 200，双字段降序、严格 6 字段 |
+| 详情 | 200/400/404 符合 |
+| 删除 | 204 空体；再次删除 404 |
+| Swagger UI/JSON | 200，paths 正确 |
+| 清理 | 全部 204，最终业务数据 0 |
 
-但目标 workspace 脚本随后确实执行，最终退出码均为 `0`。
+完整真实状态码、响应和测试脚本修正记录见 T03 完成报告。
 
-## 15. 当前已知问题
+## 17. 当前已知问题
 
-1. **Nest 根 `.env` 路径依赖 cwd**：`resolve(process.cwd(), '../.env')` 只在 cwd 为 `server/` 时指向仓库根；直接从其他目录运行编译产物可能读错。T02 任务明确将该问题留待 T15。
-2. **CLI DataSource 不复用 Nest 环境校验**：CLI 会加载根 `.env`，但直接读取 `process.env`，不会调用 `validateEnvironment()`；CLI 配置缺失时通常表现为驱动连接错误。
-3. **数据库使用 root 账号**：Compose 没有独立最小权限业务用户，后端当前通过 `DB_USER=root` 连接。
-4. **Vite 代理端口写死为 3000**：修改 `SERVER_PORT` 不会自动同步开发代理。
-5. **前端失败态保留旧健康数据**：请求失败时只提示错误，不清空上一次成功结果。
-6. **根目录没有 `package.json`/`packageManager`**：仓库没有通过 package metadata 固定精确 pnpm 版本。
-7. **pnpm 有非致命 filter 提示**：本次命令均出现一次“No projects matched”提示，但随后正确执行目标 workspace，未影响退出码。
-8. **README 数据库示例硬编码密码**：示例中的 `root123` 不会随 `.env` 变化。
-9. **任务说明存在计数错误**：`task-02-database-core.md` 的 §5.1 标题写“新增 13 个 server 文件”，但其表格和实际实现均为 14 个。
-10. **任务说明有一处验收语义矛盾**：一处要求应用启动自动 `runMigrations()`，另一处又描述“revert 后重启服务仍只剩 migrations 表”；按当前实现，重启会自动补跑 migration。
-11. **部分完整场景未在本次审计中重跑**：没有停启 MySQL 验证故障恢复、没有临时移除 `QDRANT_URL`、没有进行浏览器人工回归，也没有单独完成 synchronize 防回归的运行态实验。详见完成报告。
+1. **时间字段偏移**：MySQL 容器系统时区为 UTC，TypeORM/mysql2 连接未显式配置 timezone。本次 API 返回的 ISO 时间比实际 UTC 再早 8 小时；字段存在与排序验收不受影响，但显示值不准确。
+2. **ParsePositiveIntPipe 数字语法宽松**：`Number()` 会接受 `1e2`、`0x10`、`1.0`，也未检查 safe integer 或 `INT UNSIGNED` 上限。
+3. **总体方案未回填 T03 索引决策**：`docs/00-overall-plan.md` 仍写 `idx_name` 和应用层重名校验，且没有任务文档所称的 v1.2 修订记录。
+4. **T02 报告是历史快照**：其中 `idx_name`、单 migration、T03 未开始等是 T02 当时状态，不能作为当前事实。
+5. **Nest 根 `.env` 路径依赖 cwd**：`resolve(process.cwd(), '../.env')` 仍可能在其他 cwd 下指错。
+6. **CLI DataSource 不复用 Nest 环境校验**：CLI 直接读取 `process.env`。
+7. **数据库使用 root 账号**：没有独立最小权限业务用户。
+8. **Windows MySQL80 可能再次冲突**：当前为 Stopped，但启动类型为 Automatic。
+9. **Vite 代理端口写死**：不会自动跟随 `SERVER_PORT`。
+10. **前端健康请求失败时保留旧数据显示**。
+11. **pnpm 非致命提示**：migration/build/type-check 会先输出一次“No projects matched”，但目标 workspace 随后正常执行且退出码为 0。
+12. **Swagger Schema 只描述 data**：这是当前设计；线上实际普通成功响应仍有 `{ code, message, data }` envelope。
+13. **并发分支缺少运行埋点**：黑盒已证明 201/409、无 500，但无法确认具体 409 来自预检还是 `ER_DUP_ENTRY` catch。
 
-## 16. 当前未实现范围
+## 18. 当前未实现范围
 
-以下能力仍未实现，且本次没有开始 T03：
+以下能力仍未实现；T04 尚未开始：
 
-- 知识库、文档、会话业务 controller/service/DTO/repository；
-- 文件上传、解析、清洗、切片；
-- Embedding、Qdrant 客户端和 collection 管理；
-- RAG 检索、LLM 调用、Chat 和 SSE 端点；
-- Vue Router、Pinia 和业务页面；
-- Swagger、鉴权、JWT。
+- 知识库更新接口
+- 列表分页
+- 文档 module/controller/service/DTO
+- 文档上传、文件存储和哈希去重
+- 文档解析、清洗、切片
+- Qdrant 客户端和 collection 管理
+- Embedding 服务
+- RAG、LLM、Chat、SSE 端点
+- 会话接口
+- 前端知识库/文档/对话页面
+- Vue Router、Pinia
+- 鉴权、JWT
+- BaseService 或通用 CRUD 框架
 
+## 19. 进入 T04 的当前条件
+
+当前具备进入 T04 的技术前置：
+
+- T03 CRUD 和 Swagger 验收通过。
+- `uk_name` 已落库。
+- 两条 Migration 完整且无 pending。
+- server build、web type-check 通过。
+- MySQL healthy，数据库业务数据已清理。
+- 没有需要先回滚的越界实现。
+
+进入 T04 时应保留 T02/T03 Migration，不应修改历史 Migration；当前状态以本文和 `docs/reports/task-03-completion.md` 为准。

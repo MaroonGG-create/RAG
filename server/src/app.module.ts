@@ -7,6 +7,7 @@ import configuration from './config/configuration';
 import { validateEnvironment } from './config/env.validation';
 import { DatabaseModule } from './database/database.module';
 import { TypeOrmConfigService } from './database/typeorm.config';
+import { DocumentModule } from './modules/document/document.module';
 import { HealthModule } from './modules/health/health.module';
 import { KnowledgeBaseModule } from './modules/knowledge-base/knowledge-base.module';
 
@@ -26,6 +27,7 @@ import { KnowledgeBaseModule } from './modules/knowledge-base/knowledge-base.mod
     DatabaseModule,
     HealthModule,
     KnowledgeBaseModule,
+    DocumentModule,
   ],
 })
 export class AppModule {}
