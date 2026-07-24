@@ -4,6 +4,7 @@ import {
   IsInt,
   IsNotEmpty,
   IsString,
+  IsUrl,
   Max,
   Min,
   validateSync,
@@ -48,6 +49,14 @@ class EnvironmentVariables {
   @IsString()
   @IsNotEmpty()
   DB_NAME!: string;
+
+  @IsDefined()
+  @IsUrl({
+    require_tld: false,
+    require_protocol: true,
+    protocols: ['http', 'https'],
+  })
+  QDRANT_URL!: string;
 }
 
 export function validateEnvironment(

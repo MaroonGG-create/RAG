@@ -5,7 +5,12 @@
   "scripts": {
     "dev": "nest start --watch",
     "build": "nest build",
-    "start": "node dist/main.js"
+    "start": "node dist/main.js",
+    "typeorm": "typeorm-ts-node-commonjs -d src/database/data-source.ts",
+    "migration:generate": "pnpm run typeorm migration:generate",
+    "migration:run": "pnpm run typeorm migration:run",
+    "migration:revert": "pnpm run typeorm migration:revert",
+    "migration:show": "pnpm run typeorm migration:show"
   },
   "dependencies": {
     "@nestjs/common": "^10.4.15",
@@ -15,6 +20,7 @@
     "@nestjs/typeorm": "^10.0.2",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.1",
+    "dotenv": "^16.4.5",
     "mysql2": "^3.11.5",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
@@ -24,6 +30,7 @@
     "@nestjs/cli": "^10.4.9",
     "@types/express": "^4.17.21",
     "@types/node": "^20.17.0",
+    "ts-node": "^10.9.2",
     "typescript": "^5.6.3"
   }
 }

@@ -4,6 +4,9 @@ import {
   TypeOrmModuleOptions,
   TypeOrmOptionsFactory,
 } from '@nestjs/typeorm';
+import { resolve } from 'node:path';
+
+import { AppEntities } from './entities';
 
 @Injectable()
 export class TypeOrmConfigService implements TypeOrmOptionsFactory {
@@ -17,10 +20,11 @@ export class TypeOrmConfigService implements TypeOrmOptionsFactory {
       username: this.configService.getOrThrow<string>('database.username'),
       password: this.configService.getOrThrow<string>('database.password'),
       database: this.configService.getOrThrow<string>('database.name'),
-      entities: [],
-      // T01 尚无实体；synchronize 仅用于开发阶段，T02 注册实体后继续评估。
-      synchronize: true,
-      // 延迟到健康检查时连接，避免数据库暂不可用导致 Nest 进程无法启动。
+      entities: AppEntities,
+      migrations: [resolve(__dirname, 'migrations/*{.ts,.js}')],
+      // 禁止改为 true，表结构只能经 migration 变更。
+      synchronize: false,
+      // 保留手动初始化，由 DatabaseService 启动尝试，失败不阻止 Nest 进程。
       manualInitialization: true,
     };
   }

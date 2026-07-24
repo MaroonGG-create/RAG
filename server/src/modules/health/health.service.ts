@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
-import { DataSource } from 'typeorm';
+
+import { DatabaseService } from '../../database/database.service';
 
 export interface HealthResult {
   status: 'ok';
@@ -9,14 +10,12 @@ export interface HealthResult {
 
 @Injectable()
 export class HealthService {
-  private initializationPromise?: Promise<DataSource>;
-
-  constructor(private readonly dataSource: DataSource) {}
+  constructor(private readonly databaseService: DatabaseService) {}
 
   async getHealth(): Promise<HealthResult> {
     try {
-      await this.ensureDataSourceInitialized();
-      await this.dataSource.query('SELECT 1');
+      const dataSource = await this.databaseService.ensureReady();
+      await dataSource.query('SELECT 1');
 
       return {
         status: 'ok',
@@ -24,6 +23,8 @@ export class HealthService {
         uptime: process.uptime(),
       };
     } catch (error: unknown) {
+      // 连接恢复后需重新确认 migration 已就绪，不能只依赖连接池自动重连。
+      this.databaseService.invalidateReadiness();
       console.error('数据库健康检查失败：', error);
 
       return {
@@ -32,23 +33,5 @@ export class HealthService {
         uptime: process.uptime(),
       };
     }
-  }
-
-  private async ensureDataSourceInitialized(): Promise<void> {
-    if (this.dataSource.isInitialized) {
-      return;
-    }
-
-    // 并发健康检查共享同一次初始化，失败后清空以便下次请求重试。
-    if (!this.initializationPromise) {
-      this.initializationPromise = this.dataSource
-        .initialize()
-        .catch((error: unknown) => {
-          this.initializationPromise = undefined;
-          throw error;
-        });
-    }
-
-    await this.initializationPromise;
   }
 }
