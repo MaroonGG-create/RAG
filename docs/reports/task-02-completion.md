@@ -13,7 +13,7 @@
 - 最终数据库实查确认 6 张业务表和 `migrations` 表全部存在，字段、3 个唯一约束、6 个命名普通索引、5 个外键及 `ON DELETE CASCADE` 均与 T02 数据模型一致。
 - Compose MySQL 当前为 `healthy`，没有发生 3306 阻塞；HTTP 健康检查当前为 `db="up"`。
 - 没有发现 T03 业务代码。
-- 由于 `task-02-database-core.md` §十一中的故障恢复、缺失环境变量、浏览器人工回归和独立 synchronize 防回归场景未在本次审计中全部重跑，本报告的最终验收判定为：**部分通过**。这是验收覆盖不完整，不是已发现的 T02 核心代码或 schema 失败。
+- 收尾阶段已实际补跑 Compose MySQL 故障/恢复、缺失 `QDRANT_URL` 启动失败和浏览器按钮回归，三项均符合预期。最终判定为：**关键收尾验收通过；原始完整清单仍有 4 项未执行**，详见 §9。
 
 ## 1. 实际新增文件
 
@@ -299,28 +299,107 @@ ERROR 1064 (42000) ... SQL syntax
 
 随后改为在 PowerShell 中读取 `.env`、将 SQL 作为单独参数传给容器内 mysql，等价查询退出码为 `0` 并返回全部 7 张表。该失败是审计命令的引号问题，不是 migration、数据库连接或 schema 失败。
 
-## 8. 没有执行或执行失败的验收项
+## 8. 收尾补充验收
 
-### 8.1 本次没有执行
+### 8.1 Compose MySQL 断开和恢复
 
-以下项目来自 `task-02-database-core.md` 的完整验收清单，但不在用户本次强制执行的 5 条命令和结构查询范围内，且涉及修改环境、停启基础设施或人工浏览器检查，因此本次没有执行：
+执行前确认：
+
+- 后端为同一个 Node 进程，PID `20072`，监听 `3000`。
+- Compose MySQL 和 Qdrant 均为 `healthy`。
+- `GET /api/health` 返回 HTTP 200，响应中的 `data.db="up"`。
+
+实际执行：
+
+```powershell
+docker compose stop mysql
+curl.exe -sS -i --max-time 30 http://localhost:3000/api/health
+Get-Process -Id 20072
+
+docker compose start mysql
+# 轮询容器 health 状态至 healthy
+curl.exe -sS -i --max-time 30 http://localhost:3000/api/health
+Get-Process -Id 20072
+```
+
+实际结果：
+
+| 阶段 | Compose MySQL | HTTP | `data.db` | 后端进程 |
+|---|---|---:|---|---|
+| 停止前 | `Up (healthy)` | 200 | `up` | PID `20072` 存活 |
+| `docker compose stop mysql` 后 | `Exited (0)` | 200 | `down` | 同一 PID `20072` 存活且 Responding |
+| `docker compose start mysql` 并恢复 healthy 后 | `Up (healthy)` | 200 | `up` | 同一 PID `20072` 存活且 Responding |
+
+停库时的实际响应：
+
+```json
+{"code":0,"message":"success","data":{"status":"ok","db":"down","uptime":247.6621717}}
+```
+
+恢复后的实际响应：
+
+```json
+{"code":0,"message":"success","data":{"status":"ok","db":"up","uptime":269.2045825}}
+```
+
+结论：数据库不可用时后端进程不退出；MySQL 恢复后，健康检查可自动恢复为 `db="up"`。
+
+### 8.2 缺失 QDRANT_URL
+
+没有编辑或删除根 `.env`。从不会加载项目根 `.env` 的工作目录启动编译产物，仅向临时进程注入其他必需变量，并明确移除进程级 `QDRANT_URL`。
+
+实际结果：
+
+```text
+PROCESS_EXIT_CODE=1
+环境变量校验失败：QDRANT_URL: QDRANT_URL should not be null or undefined, QDRANT_URL must be a URL address
+```
+
+临时进程退出后，原有 `localhost:3000` 后端仍正常返回 `db="up"`，根 `.env` 未发生修改。
+
+结论：缺少 `QDRANT_URL` 时启动失败，且错误信息明确包含变量名。
+
+### 8.3 前端浏览器回归
+
+实际通过浏览器打开 `http://localhost:5173/`，点击唯一的“检查服务状态”按钮。
+
+页面实际展示：
+
+```text
+服务状态  ok
+数据库    up
+运行时间  469.3145748 秒
+```
+
+浏览器页面控制台错误数为 `0`。同时请求前端代理地址 `http://localhost:5173/api/health`，实际原始响应为：
+
+```json
+{"code":0,"message":"success","data":{"status":"ok","db":"up","uptime":497.4530383}}
+```
+
+结论：页面能消费 Axios 解包后的 `status/db/uptime`，网络层仍保持后端统一 envelope。
+
+## 9. 没有执行或执行失败的验收项
+
+### 9.1 收尾后仍未执行
+
+以下项目仍未执行，原因一并如实记录：
 
 1. 没有执行 `DROP DATABASE IF EXISTS mini_rag; CREATE DATABASE ...` 的空库重建。当前第一次 `migration:run` 因 migration 已执行而为 no-op，随后通过指定的 `revert → run` 完成了等价的 6 张业务表删除/重建验证。
 2. 没有在 `migration:revert` 与最终 `migration:run` 之间单独执行 `SHOW TABLES`，因此没有留下“当时只剩 migrations 表”的数据库输出证据。
-3. 没有停止/启动 Compose MySQL 并在中间请求健康接口，故未重跑“数据库故障时进程存活、恢复后健康请求重试”的动态场景。
-4. 没有临时删除根 `.env` 中的 `QDRANT_URL` 并启动后端；只静态确认了 `env.validation.ts` 中的校验实现。
-5. 没有启动/操作浏览器进行前端按钮人工回归；已执行前端 `type-check`，并静态核对 Axios 解包。
-6. 没有单独执行 synchronize 防回归实验。当前源码和两个 DataSource 均明确为 `synchronize: false`；同时任务说明中“重启自动跑 migration”和“revert 后重启仍只剩 migrations 表”存在语义冲突。
-7. 没有重新执行 `migration:generate`。当前 `InitSchema` 已存在，且本次实查确认其最终 schema 与实体一致。
+3. 没有按任务中的矛盾描述执行“revert 后重启仍只剩 migrations 表”。应用重启会按冻结设计自动执行 `runMigrations()`；当前源码和两个 DataSource 均已确认 `synchronize: false`。
+4. 没有重新执行 `migration:generate`。当前 `InitSchema` 已存在，且数据库结构实查已确认其最终 schema 与实体一致；重复生成会产生无验收价值的文件。
 
-### 8.2 验收失败
+### 9.2 验收失败
 
 - 用户本次指定的 5 条命令：**无失败**。
 - 最终数据库表、字段、索引、唯一约束、外键查询：**无失败**。
 - HTTP 健康和统一 404 结构检查：**无失败**。
+- 收尾补充的数据库故障/恢复、缺失环境变量和浏览器回归：**无产品验收失败**。
+- 缺失 `QDRANT_URL` 场景的进程退出码 `1` 是该验收项的预期结果。
 - 唯一退出码非 0 的调用是 §7.4 的 SQL shell 引号错误；修正调用后查询成功，不计为产品验收失败。
 
-## 9. 已知问题
+## 10. 已知问题
 
 1. Nest 运行时通过 `resolve(process.cwd(), '../.env')` 定位根 `.env`，依赖 cwd；T02 说明明确将其留待 T15。
 2. CLI DataSource 直接读取 `process.env`，不复用 Nest 的 `validateEnvironment()`。
@@ -331,11 +410,11 @@ ERROR 1064 (42000) ... SQL syntax
 7. pnpm 命令会输出一次非致命的“No projects matched”提示，虽然目标 workspace 随后正常执行。
 8. README 的 MySQL 示例命令硬编码 `root123`，与 `.env` 修改不会自动同步。
 9. `task-02-database-core.md` 的新增文件数量标题错误，并存在启动自动 migration 与 synchronize 防回归描述之间的矛盾。
-10. 完整的故障恢复、环境变量失败和浏览器场景没有在本次核查中动态验证。
+10. Windows `MySQL80` 当前为 `Stopped`，但启动类型仍为 `Automatic`；系统重启后可能再次与 Compose MySQL 争用 3306。
 
-## 10. T02 最终结论
+## 11. T02 最终结论
 
-**部分通过**
+**关键收尾验收通过；原始完整清单仍有 4 项未执行**
 
 判定依据：
 
@@ -343,6 +422,7 @@ ERROR 1064 (42000) ... SQL syntax
 - 用户本次明确要求的 build、type-check、migration `run → revert → run`：全部成功。
 - 当前数据库结构：7 张目标表全部存在；字段、引擎、字符集、索引、唯一约束、5 条 CASCADE 外键全部符合。
 - 当前运行态：MySQL healthy，3306 无冲突，健康接口 `db="up"`，统一成功/错误响应可用。
-- 扣减项：T02 原完整验收清单仍有 7 类场景未在本次审计中执行，因此没有把“核心验收通过”扩大表述为“所有验收项完整通过”。
+- 收尾补验：同一后端进程在 MySQL 停止时保持存活并返回 `db="down"`，MySQL 恢复后返回 `db="up"`；缺失 `QDRANT_URL` 会明确启动失败；前端浏览器按钮和 Axios 解包正常。
+- 保留项：§9.1 列出的 4 项仍未执行，因此本报告不表述为“原始验收清单 100% 全部执行”。
 
 T03 未开始，本次也未修改任何业务功能。

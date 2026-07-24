@@ -24,6 +24,28 @@ pnpm --filter web dev
 
 后端默认运行于 `http://localhost:3000`，前端默认运行于 `http://localhost:5173`。
 
+## 接口文档
+
+Swagger 地址：`http://localhost:3000/api/docs`
+
+## 知识库接口
+
+```bash
+# 创建知识库
+curl -X POST http://localhost:3000/api/knowledge-bases \
+  -H "Content-Type: application/json" \
+  -d '{"name":"产品文档库","description":"产品相关文档"}'
+
+# 获取知识库列表
+curl http://localhost:3000/api/knowledge-bases
+
+# 获取知识库详情
+curl http://localhost:3000/api/knowledge-bases/1
+
+# 删除知识库
+curl -X DELETE http://localhost:3000/api/knowledge-bases/1
+```
+
 ## 数据库迁移
 
 表结构只通过 TypeORM migration 管理，后端启动时也会自动执行尚未运行的 migration。

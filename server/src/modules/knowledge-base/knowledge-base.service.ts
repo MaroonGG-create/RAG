@@ -1,0 +1,85 @@
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { QueryFailedError, Repository } from 'typeorm';
+
+import { CreateKnowledgeBaseDto } from './dto/create-knowledge-base.dto';
+import { KnowledgeBaseResponseDto } from './dto/knowledge-base-response.dto';
+import { KnowledgeBase } from './entities/knowledge-base.entity';
+
+@Injectable()
+export class KnowledgeBaseService {
+  constructor(
+    @InjectRepository(KnowledgeBase)
+    private readonly knowledgeBaseRepository: Repository<KnowledgeBase>,
+  ) {}
+
+  async create(
+    dto: CreateKnowledgeBaseDto,
+  ): Promise<KnowledgeBaseResponseDto> {
+    const name = dto.name;
+    const description = dto.description?.trim() || null;
+
+    // utf8mb4_unicode_ci 不区分大小写，预检与 uk_name 的同名判定保持一致。
+    const existingKnowledgeBase = await this.knowledgeBaseRepository.findOne({
+      where: { name },
+    });
+
+    if (existingKnowledgeBase !== null) {
+      throw new ConflictException('知识库名称已存在');
+    }
+
+    try {
+      const savedKnowledgeBase = await this.knowledgeBaseRepository.save(
+        this.knowledgeBaseRepository.create({ name, description }),
+      );
+
+      return KnowledgeBaseResponseDto.fromEntity(savedKnowledgeBase);
+    } catch (error: unknown) {
+      if (this.isDuplicateEntryError(error)) {
+        throw new ConflictException('知识库名称已存在');
+      }
+
+      throw error;
+    }
+  }
+
+  async findAll(): Promise<KnowledgeBaseResponseDto[]> {
+    // T03 MVP 暂不分页，使用 id 作为同一创建时间下的稳定排序依据。
+    const knowledgeBases = await this.knowledgeBaseRepository.find({
+      order: { createdAt: 'DESC', id: 'DESC' },
+    });
+
+    return knowledgeBases.map(KnowledgeBaseResponseDto.fromEntity);
+  }
+
+  async findOne(id: number): Promise<KnowledgeBaseResponseDto> {
+    const knowledgeBase = await this.knowledgeBaseRepository.findOne({
+      where: { id },
+    });
+
+    if (knowledgeBase === null) {
+      throw new NotFoundException('知识库不存在');
+    }
+
+    return KnowledgeBaseResponseDto.fromEntity(knowledgeBase);
+  }
+
+  async remove(id: number): Promise<void> {
+    await this.findOne(id);
+
+    // T08+ 将在此处先清理 Qdrant 向量再删 MySQL 数据。
+    await this.knowledgeBaseRepository.delete(id);
+  }
+
+  private isDuplicateEntryError(error: unknown): boolean {
+    // 预检存在并发窗口，数据库唯一约束是最终兜底。
+    return (
+      error instanceof QueryFailedError &&
+      (error.driverError as { code?: string }).code === 'ER_DUP_ENTRY'
+    );
+  }
+}

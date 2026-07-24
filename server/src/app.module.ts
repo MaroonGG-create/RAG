@@ -8,6 +8,7 @@ import { validateEnvironment } from './config/env.validation';
 import { DatabaseModule } from './database/database.module';
 import { TypeOrmConfigService } from './database/typeorm.config';
 import { HealthModule } from './modules/health/health.module';
+import { KnowledgeBaseModule } from './modules/knowledge-base/knowledge-base.module';
 
 @Module({
   imports: [
@@ -24,6 +25,7 @@ import { HealthModule } from './modules/health/health.module';
     }),
     DatabaseModule,
     HealthModule,
+    KnowledgeBaseModule,
   ],
 })
 export class AppModule {}

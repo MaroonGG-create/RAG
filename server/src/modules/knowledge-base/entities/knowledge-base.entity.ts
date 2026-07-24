@@ -2,9 +2,9 @@ import {
   Column,
   CreateDateColumn,
   Entity,
-  Index,
   OneToMany,
   PrimaryGeneratedColumn,
+  Unique,
   UpdateDateColumn,
 } from 'typeorm';
 
@@ -12,7 +12,7 @@ import { Conversation } from '../../conversation/entities/conversation.entity';
 import { Document } from '../../document/entities/document.entity';
 
 @Entity({ name: 'knowledge_base', engine: 'InnoDB' })
-@Index('idx_name', ['name'])
+@Unique('uk_name', ['name'])
 export class KnowledgeBase {
   @PrimaryGeneratedColumn({ name: 'id', type: 'int', unsigned: true })
   id!: number;
