@@ -4,6 +4,7 @@ import {
   IsBoolean,
   IsInt,
   IsNotEmpty,
+  IsNumber,
   IsOptional,
   IsString,
   IsUrl,
@@ -76,6 +77,20 @@ class EnvironmentVariables {
   @Type(() => Boolean)
   @IsBoolean()
   QDRANT_MOCK?: boolean;
+
+  @IsDefined()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(20)
+  TOP_K!: number;
+
+  @IsDefined()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @Max(1)
+  SCORE_THRESHOLD!: number;
 
   @IsDefined()
   @IsString()

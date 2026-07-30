@@ -8,6 +8,7 @@ import {
   QdrantFilter,
   QdrantPayload,
   QdrantPoint,
+  QdrantScoredPoint,
   QdrantVectorConfig,
   VectorStoreFailure,
 } from './vector-store.types';
@@ -182,12 +183,91 @@ export class QdrantClientWrapper implements OnModuleInit {
     return result.count;
   }
 
+  async search(
+    vector: number[],
+    filter: QdrantFilter,
+    limit: number,
+    scoreThreshold: number,
+  ): Promise<QdrantScoredPoint[]> {
+    if (this.mock) {
+      return this.mockSearch(vector, filter, limit, scoreThreshold);
+    }
+
+    const request: Parameters<QdrantClient['search']>[1] = {
+      vector,
+      filter,
+      limit,
+      score_threshold: scoreThreshold,
+      with_payload: true,
+      with_vector: false,
+    };
+    const result = await this.getClient().search(
+      this.collection,
+      request,
+    );
+
+    return result.map((point) => ({
+      id: String(point.id),
+      score: point.score,
+      payload: (point.payload ?? {}) as QdrantPayload,
+    }));
+  }
+
   private getClient(): QdrantClient {
     if (this.client === null) {
       throw new VectorStoreFailure('Qdrant client 尚未初始化');
     }
 
     return this.client;
+  }
+
+  private mockSearch(
+    vector: number[],
+    filter: QdrantFilter,
+    limit: number,
+    scoreThreshold: number,
+  ): QdrantScoredPoint[] {
+    const results: QdrantScoredPoint[] = [];
+
+    for (const [id, point] of this.mockStore.entries()) {
+      if (!this.matchesFilter(point.payload, filter)) {
+        continue;
+      }
+
+      const score = this.cosineSimilarity(vector, point.vector);
+
+      if (score < scoreThreshold) {
+        continue;
+      }
+
+      results.push({
+        id,
+        score,
+        payload: point.payload,
+      });
+    }
+
+    return results.sort((a, b) => b.score - a.score).slice(0, limit);
+  }
+
+  private cosineSimilarity(a: number[], b: number[]): number {
+    if (a.length !== b.length || a.length === 0) {
+      return 0;
+    }
+
+    let dotProduct = 0;
+    let normA = 0;
+    let normB = 0;
+
+    for (let index = 0; index < a.length; index += 1) {
+      dotProduct += a[index] * b[index];
+      normA += a[index] * a[index];
+      normB += b[index] * b[index];
+    }
+
+    const denominator = Math.sqrt(normA) * Math.sqrt(normB);
+
+    return denominator > 0 ? dotProduct / denominator : 0;
   }
 
   private matchesFilter(

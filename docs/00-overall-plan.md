@@ -1,6 +1,6 @@
 # Mini RAG 知识库系统 — 第一版总体方案
 
-> 版本：v1.7（MVP 设计基线，T08 修订）
+> 版本：v1.8（MVP 设计基线，T09 修订）
 > 定位：个人开发、简历展示、面试讲解
 > 原则：先设计后编码、接口先行、数据结构先行、不扩大 MVP 范围
 
@@ -128,8 +128,8 @@ Rerank 仅作为基础版本验收后的可选优化项，不在本方案任务�
 ```
 POST /api/chat/stream {knowledgeBaseId, question, conversationId?}
  ① 校验知识库存在；保存 user message（若带 conversationId 则归属该会话）
- ② question → Embedding API → queryVector
- ③ Qdrant search：filter knowledgeBaseId，TopK=5，scoreThreshold=0.5
+ ② question → EmbeddingService.embedQuery() → queryVector
+ ③ Qdrant search：filter knowledgeBaseId，TopK/SCORE_THRESHOLD 使用环境默认值或请求覆盖；仅保留 completed 文档结果
       命中 0 条 → 直接流式返回固定话术"知识库中未找到相关内容"，
       references=[]，**不调用 LLM（防编造的第一道闸）**
  ④ 组装上下文：按 score 降序拼接，标注 [来源i]，总长截断到 4000 字符
@@ -286,8 +286,9 @@ POST /api/chat/stream {knowledgeBaseId, question, conversationId?}
 | document | `src/modules/document/` | 上传、哈希去重、列表、删除 | 依赖 processing、vector-store |
 | processing | `src/modules/processing/` | 解析(cleaner/splitter/parser)、流水线编排、状态机 | 依赖 embedding、vector-store |
 | embedding | `src/modules/embedding/` | OpenAI 兼容 Embedding 客户端、Mock 模式、分批、重试、读取 DocumentChunk 并返回内存向量结果 | client 仅依赖 config；service 依赖 document 实体 |
-| vector-store | `src/modules/vector-store/` | Qdrant 客户端封装：建 collection、维度校验、payload 索引、upsert、按过滤删除；T09 前不实现 search | client 仅依赖 config；service 依赖 embedding 和 document 实体 |
-| chat | `src/modules/chat/` | 检索 → Prompt → LLM 流式调用 → SSE 输出 | 依赖 vector-store、embedding、conversation |
+| vector-store | `src/modules/vector-store/` | Qdrant 客户端封装：建 collection、维度校验、payload 索引、upsert、按过滤删除和向量 search | client 仅依赖 config；service 依赖 embedding 和 document 实体 |
+| retrieval | `src/modules/retrieval/` | T09 检索编排：query embedding、knowledgeBaseId 过滤、TopK/阈值、payload 校验、completed 文档过滤，提供内部 Service 与测试 HTTP 接口 | 依赖 embedding、vector-store、database |
+| chat | `src/modules/chat/` | 检索 → Prompt → LLM 流式调用 → SSE 输出 | 依赖 retrieval、conversation、llm |
 | llm | `src/modules/llm/` | OpenAI 兼容 Chat 客户端（流式） | 仅依赖 config |
 | conversation | `src/modules/conversation/` | 会话、消息、引用的存取 | 依赖 database |
 
@@ -332,6 +333,7 @@ POST /api/chat/stream {knowledgeBaseId, question, conversationId?}
 | 11 | GET | `/api/knowledge-bases/:id/conversations` | 会话列表 | 按更新时间倒序 |
 | 12 | GET | `/api/conversations/:id/messages` | 会话消息（含引用） | assistant 消息带 references 数组 |
 | 13 | DELETE | `/api/conversations/:id` | 删除会话 | 返回 204 |
+| 14 | POST | `/api/knowledge-bases/:id/retrieve` | 向量检索测试接口 | body: `{query, topK?, scoreThreshold?}`；响应 `{results,total,took}`，结果不含向量 |
 
 错误码段位：400 参数校验失败、404 资源不存在、409 重复文件/重名、422 文档未处理完成不可问、502 模型服务异常、500 其他。
 
@@ -360,6 +362,7 @@ mini-rag/
 │  │     ├─ processing/        # parser.ts cleaner.ts splitter.ts pipeline.service.ts
 │  │     ├─ embedding/
 │  │     ├─ vector-store/
+│  │     ├─ retrieval/
 │  │     ├─ llm/
 │  │     ├─ chat/
 │  │     └─ conversation/
@@ -417,7 +420,7 @@ mini-rag/
 | `MAX_FILE_SIZE_MB` | 20 | 上传大小限制 |
 | `CHUNK_SIZE` / `CHUNK_OVERLAP` | 500 / 100 | 字符数 |
 | `CONTEXT_MAX_CHARS` | 4000 | 组装上下文上限 |
-| `TOP_K` / `SCORE_THRESHOLD` | 5 / 0.5 | 检索默认值 |
+| `TOP_K` / `SCORE_THRESHOLD` | 5 / 0.5 | 检索默认值；T09 已实现，支持请求级覆盖 |
 | `CORS_ORIGIN` | http://localhost:5173 | 允许来源 |
 | `VITE_API_BASE_URL` | /api | 前端（构建期注入） |
 
@@ -547,3 +550,13 @@ mini-rag/
 | 4 | §15 风险 3 更新：双写一致性由 T08 部分覆盖 | T08 实现重试前清旧向量、失败补偿清理、写入数量校验，并将文档/知识库删除接入向量清理 |
 | 5 | §15 风险 5 更新：`embedding`/`failed` 状态的向量写入重试由 T08 覆盖 | T08 支持从 `embedding`/`failed` 触发写入，成功置 `completed`，同文档并发去重，`completed` 防重复 |
 | 6 | §3.2 `@qdrant/js-client-rest` 版本精确锁定为 `1.12.0` | 与 Qdrant Server v1.12.4 对齐，保持 Node 20 + NestJS 10 CJS 运行时兼容 |
+
+### v1.8（T09 设计时修订，项目负责人确认）
+
+| # | 变更 | 原因 |
+|---|---|---|
+| 1 | §7 模块划分补充：`retrieval` 模块在 T09 创建 | 新增 `RetrievalModule`，含 `RetrievalService` 和 `RetrievalController`；依赖 `EmbeddingModule` + `VectorStoreModule` |
+| 2 | §9 API 接口清单补充 #14：`POST /api/knowledge-bases/:id/retrieve` | T09 新增检索测试接口；body `{query, topK?, scoreThreshold?}`；响应 `{results,total,took}` |
+| 3 | §12 环境变量 `TOP_K`/`SCORE_THRESHOLD` 在 T09 实现 | 总体方案已列出，T09 首次使用检索配置，并支持请求级覆盖 |
+| 4 | §4.2 问答流水线 ②③ 补充：检索参数来源和过滤逻辑 | ② query 通过 `EmbeddingService.embedQuery()` 生成向量；③ Qdrant search 使用 `knowledgeBaseId` 过滤，TopK/阈值可覆盖，并过滤无效文档 |
+| 5 | `EmbeddingService` 新增 `embedQuery()` 方法 | T09 需要单条 query 向量化，复用 T07 `EmbeddingClient` 的 Mock、重试、超时和维度校验 |

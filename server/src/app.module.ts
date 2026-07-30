@@ -12,6 +12,7 @@ import { EmbeddingModule } from './modules/embedding/embedding.module';
 import { HealthModule } from './modules/health/health.module';
 import { KnowledgeBaseModule } from './modules/knowledge-base/knowledge-base.module';
 import { ProcessingModule } from './modules/processing/processing.module';
+import { RetrievalModule } from './modules/retrieval/retrieval.module';
 import { VectorStoreModule } from './modules/vector-store/vector-store.module';
 
 @Module({
@@ -34,6 +35,7 @@ import { VectorStoreModule } from './modules/vector-store/vector-store.module';
     ProcessingModule,
     EmbeddingModule,
     VectorStoreModule,
+    RetrievalModule,
   ],
 })
 export class AppModule {}

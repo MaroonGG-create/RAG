@@ -19,6 +19,12 @@ export interface QdrantPoint {
   payload: QdrantPayload;
 }
 
+export interface QdrantScoredPoint {
+  id: string;
+  score: number;
+  payload: QdrantPayload;
+}
+
 export interface QdrantVectorConfig {
   size: number;
   distance: string;

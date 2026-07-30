@@ -26,6 +26,10 @@ export interface AppConfiguration {
     upsertBatchSize: number;
     mock: boolean;
   };
+  retrieval: {
+    topK: number;
+    scoreThreshold: number;
+  };
   embedding: {
     baseUrl: string;
     apiKey: string;
@@ -70,6 +74,10 @@ export default function configuration(): AppConfiguration {
         process.env.QDRANT_UPSERT_BATCH_SIZE ?? 100,
       ),
       mock: process.env.QDRANT_MOCK === 'true',
+    },
+    retrieval: {
+      topK: Number(process.env.TOP_K ?? 5),
+      scoreThreshold: Number(process.env.SCORE_THRESHOLD ?? 0.5),
     },
     embedding: {
       baseUrl: process.env.EMBEDDING_BASE_URL ?? '',

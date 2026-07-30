@@ -15,6 +15,7 @@ import { QdrantClientWrapper } from './qdrant-client-wrapper';
 import {
   QdrantFilter,
   QdrantPoint,
+  QdrantScoredPoint,
   StoreResult,
   VectorStoreFailure,
 } from './vector-store.types';
@@ -75,6 +76,20 @@ export class VectorStoreService implements OnModuleInit {
   ): Promise<void> {
     await this.qdrantClient.deleteByFilter(
       this.createKnowledgeBaseFilter(knowledgeBaseId),
+    );
+  }
+
+  async search(
+    queryVector: number[],
+    knowledgeBaseId: number,
+    limit: number,
+    scoreThreshold: number,
+  ): Promise<QdrantScoredPoint[]> {
+    return this.qdrantClient.search(
+      queryVector,
+      this.createKnowledgeBaseFilter(knowledgeBaseId),
+      limit,
+      scoreThreshold,
     );
   }
 

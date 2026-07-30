@@ -55,6 +55,20 @@ export class EmbeddingService {
     return task;
   }
 
+  async embedQuery(query: string): Promise<number[]> {
+    const vectors = await this.embeddingClient.embed([query]);
+
+    if (vectors.length !== 1) {
+      throw new EmbeddingFailure(
+        `Query Embedding 返回数量不一致：expected=1，actual=${vectors.length}`,
+      );
+    }
+
+    this.assertVectorBatch(vectors, 1);
+
+    return vectors[0];
+  }
+
   private async executeEmbedDocument(
     documentId: number,
   ): Promise<EmbeddingResult> {
