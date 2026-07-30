@@ -8,6 +8,7 @@
     "start": "node dist/main.js",
     "parse:document": "ts-node src/scripts/parse-document.ts",
     "chunk:document": "ts-node src/scripts/chunk-document.ts",
+    "embed:document": "ts-node src/scripts/embed-document.ts",
     "typeorm": "typeorm-ts-node-commonjs -d src/database/data-source.ts",
     "migration:generate": "pnpm run typeorm migration:generate",
     "migration:run": "pnpm run typeorm migration:run",

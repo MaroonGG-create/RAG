@@ -1,6 +1,6 @@
 # Mini RAG 知识库系统 — 第一版总体方案
 
-> 版本：v1.0（MVP 设计基线）
+> 版本：v1.6（MVP 设计基线，T07 修订）
 > 定位：个人开发、简历展示、面试讲解
 > 原则：先设计后编码、接口先行、数据结构先行、不扩大 MVP 范围
 
@@ -117,7 +117,7 @@ Rerank 仅作为基础版本验收后的可选优化项，不在本方案任务�
       产出 [{chunkIndex, content, pageNo?}]，status → chunking；T06 成功后 status 留在 chunking，表示“已切片，待向量化”
  ⑦ 写入 document_chunk 行（MySQL，含 qdrant_point_id=uuid v4）
  ⑧ embed：分批(默认20条/批)调用 Embedding API，失败指数退避重试3次
-      status → embedding
+      status → embedding；T07 成功后 status 留在 embedding，表示“已向量化，待写入 Qdrant”
  ⑨ upsert Qdrant：point id=chunk.qdrant_point_id，vector + payload
  ⑩ document.status=completed, chunk_count=N
      任一步失败：status=failed, error_message=具体错误，已写入的向量按 documentId 清除
@@ -285,7 +285,7 @@ POST /api/chat/stream {knowledgeBaseId, question, conversationId?}
 | knowledge-base | `src/modules/knowledge-base/` | 知识库 CRUD，删除时编排向量清理 | 依赖 vector-store |
 | document | `src/modules/document/` | 上传、哈希去重、列表、删除 | 依赖 processing、vector-store |
 | processing | `src/modules/processing/` | 解析(cleaner/splitter/parser)、流水线编排、状态机 | 依赖 embedding、vector-store |
-| embedding | `src/modules/embedding/` | OpenAI 兼容 Embedding 客户端、分批、重试 | 仅依赖 config |
+| embedding | `src/modules/embedding/` | OpenAI 兼容 Embedding 客户端、Mock 模式、分批、重试、读取 DocumentChunk 并返回内存向量结果 | client 仅依赖 config；service 依赖 document 实体 |
 | vector-store | `src/modules/vector-store/` | Qdrant 客户端封装：建 collection、维度校验、upsert、search、按过滤删除 | 仅依赖 config |
 | chat | `src/modules/chat/` | 检索 → Prompt → LLM 流式调用 → SSE 输出 | 依赖 vector-store、embedding、conversation |
 | llm | `src/modules/llm/` | OpenAI 兼容 Chat 客户端（流式） | 仅依赖 config |
@@ -405,6 +405,9 @@ mini-rag/
 | `EMBEDDING_BASE_URL` / `EMBEDDING_API_KEY` / `EMBEDDING_MODEL` | 无默认（必填） | Embedding 服务，OpenAI 兼容 |
 | `EMBEDDING_DIMENSION` | 1024 | 向量维度，必须与模型一致 |
 | `EMBEDDING_BATCH_SIZE` | 20 | 每批切片数 |
+| `EMBEDDING_TIMEOUT_MS` | 30000 | Embedding 请求超时时间 |
+| `EMBEDDING_MAX_RETRIES` | 3 | Embedding 可重试失败的最大重试次数 |
+| `EMBEDDING_MOCK` | false | 本地验收用确定性 Mock 向量，不调用真实模型服务 |
 | `LLM_BASE_URL` / `LLM_API_KEY` / `LLM_MODEL` | 无默认（必填） | 聊天模型服务 |
 | `LLM_TEMPERATURE` | 0.3 | 低温减幻觉 |
 | `LLM_MAX_TOKENS` | 2048 | |
@@ -462,9 +465,9 @@ mini-rag/
 | 2 | 更换 Embedding 模型导致维度与已建 collection 不匹配 | 检索静默失效或报错 | 启动时强校验并 fail-fast；README 写明重建步骤 |
 | 3 | MySQL 与 Qdrant 无双写事务，删除/处理中断可能残留 | 脏数据 | 先删向量后删库的幂等顺序 + 失败中止可重试 + 提供核对脚本（chunk_count vs qdrant count） |
 | 4 | SSE 经 nginx 缓冲导致前端收不到流 | 交付环境流式失效 | 响应头 `X-Accel-Buffering: no` + nginx `proxy_buffering off`，T17 验收项 |
-| 5 | 进程内异步处理，服务重启后处理中文档卡死 | 状态不一致 | T06 已支持 chunking 状态重触发：chunk_count>0 幂等短路，chunk_count=0 重跑并清理残留 chunk；parsing/embedding 崩溃残留仍需 T07+ 启动恢复机制处理 |
+| 5 | 进程内异步处理，服务重启后处理中文档卡死 | 状态不一致 | T06 已支持 chunking 状态重触发；T07 已支持 embedding 状态重试、失败置 failed、同文档并发去重；parsing 崩溃恢复仍需后续启动恢复机制处理 |
 | 6 | 字符数代替 token 数，中文场景估算偏差 | 上下文可能截断 | MVP 接受；CONTEXT_MAX_CHARS 保守取 4000；面试作为已知取舍讲解 |
-| 7 | 模型服务限流/超时 | 处理失败率上升 | 分批 + 指数退避重试 3 次 + 失败落 error_message |
+| 7 | 模型服务限流/超时 | 处理失败率上升 | T07 已实现分批、超时、指数退避重试、返回数量/顺序/维度校验，失败落 error_message |
 | 8 | 文档处理无重试界面，失败只能重传 | 体验差 | MVP 接受（重传会撞哈希去重 → 允许 failed 状态文档被同文件重新上传覆盖重试，写进 T04 规则） |
 | 9 | 无鉴权，接口裸露 | 安全 | 定位本地/内网演示；README 声明；面试作为"刻意的范围裁剪"讲解 |
 | 10 | MD/TXT 无页码概念，引用展示不一致 | UI 细节 | page_no 可空，前端对 NULL 显示"-"；契约中明确 |
@@ -521,3 +524,13 @@ mini-rag/
 | 2 | §9 #8 文档详情切片预览在 T06 实现 | v1.3/v1.4 已将该能力顺延至 T06；本阶段写入真实 `document_chunk` 后可展示前 20 条切片预览 |
 | 3 | §12 `CHUNK_SIZE` / `CHUNK_OVERLAP` 环境变量在 T06 实现 | T06 首次使用总体方案中的切片配置，并补充 `CHUNK_OVERLAP < CHUNK_SIZE` 启动校验 |
 | 4 | §15 风险 5 部分关闭：`chunking` 崩溃残留由 T06 幂等处理覆盖 | T06 支持 `chunking` 状态重触发；`chunkCount > 0` 直接短路，`chunkCount = 0` 重跑并清理旧切片；`parsing`/`embedding` 仍需 T07+ 处理 |
+
+### v1.6（T07 设计时修订，项目负责人确认）
+
+| # | 变更 | 原因 |
+|---|---|---|
+| 1 | §4.1 状态语义补充：T07 成功后 `status` 留在 `embedding` | T07 只完成向量化并把 `{chunkId,qdrantPointId,vector}` 作为内存结果提供给 T08，不写 Qdrant、不置 `completed` |
+| 2 | §12 Embedding 环境变量补充 `EMBEDDING_TIMEOUT_MS`、`EMBEDDING_MAX_RETRIES`、`EMBEDDING_MOCK` | T07 首次实现模型调用，需要显式配置超时、重试和本地 Mock 验收模式 |
+| 3 | §15 风险 7 更新：Embedding 调用的分批、超时、指数退避与返回校验已在 T07 实现 | 降低限流/超时导致的失败率，并避免数量、顺序、维度错配静默进入 T08 |
+| 4 | §15 风险 5 更新：`embedding` 状态重试由 T07 覆盖 | T07 同文档内存并发去重，失败仅更新文档状态和错误信息；重试复用已有 chunk，不生成重复数据 |
+| 5 | §7 后端模块补充：`src/modules/embedding/` 已创建 | T07 新增独立 Embedding 模块，暂不实现 Qdrant、检索、LLM、Chat 或前端 |

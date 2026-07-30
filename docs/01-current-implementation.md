@@ -1,10 +1,10 @@
 # Mini RAG 当前实现快照
 
-> 快照日期：2026-07-29（Asia/Shanghai）
+> 快照日期：2026-07-30（Asia/Shanghai）
 > 工作区：`D:\Users\Documents\RAG`
 > 基准提交：`d0ccdd92b51a7756469da754a47574e3f39ff4bb`（`feat: 文件上传`）
-> 当前阶段：T06 文本清洗与切片完成后
-> 详细验收：`docs/reports/task-06-completion.md`
+> 当前阶段：T07 Embedding 服务完成后
+> 详细验收：`docs/reports/task-07-completion.md`
 
 ## 1. 当前结论
 
@@ -13,11 +13,12 @@
 - T04 文档上传、列表、详情、删除接口可用。
 - T05 文档解析可用，解析结果仍通过 `server/uploads/.parsed/{documentId}.json` 暂存传递给后续流程。
 - T06 已实现文本基础清洗、PDF/Markdown/TXT 统一切片、PDF 页码保留、`DocumentChunk` 批量写入、`document.chunkCount` 更新、切片幂等和失败清理。
-- T06 成功后文档状态停留在 `chunking`，语义为“已切片，待向量化”，供 T07 拣选。
-- 文档详情接口 `GET /api/documents/:id` 现在返回前 20 条真实 chunk 预览。
-- 本阶段没有新增公开 HTTP 路由，没有新增数据库表，没有新增 migration，没有实现 Embedding、Qdrant 写入、向量检索、LLM、Chat、SSE、Rerank 或前端页面。
+- T07 已实现 Embedding 配置、OpenAI 兼容客户端、确定性 Mock 模式、批量向量化、超时/重试、返回数量/顺序/维度校验、状态流转、失败重试和同文档并发控制。
+- T07 成功后文档状态停留在 `embedding`，语义为“已向量化，待 T08 写入 Qdrant”。
+- T07 只把 `{chunkId, chunkIndex, qdrantPointId, content, charCount, pageNo, kbId, documentId, vector}` 作为内存结果返回，不持久化 vector。
+- 本阶段没有新增公开 HTTP 路由，没有新增数据库表或 migration，没有实现 Qdrant 写入、向量检索、LLM、Chat、SSE、Rerank 或前端页面。
 
-本地默认 `.env` 仍存在运行环境问题：宿主机 `mysqld` 监听 `localhost:3306`，默认 `DB_HOST=localhost` / `DB_PORT=3306` 会打到宿主机 MySQL 并认证失败。本次验收继续使用临时 `localhost:3307 -> Compose mysql:3306` 转发，并通过 `DB_PORT=3307` 执行 CLI/SQL 验收。
+本次 T07 验收时 Docker daemon 无法启动，本机 `localhost:3306` 的 MySQL 又拒绝 `.env` 中的 `root/root123`。为完成 DB 验收，临时使用本机 MySQL 程序初始化了工作区内的 `tmp-t07-mysql`，监听 `127.0.0.1:3307`；验收后已停止并清理。
 
 ## 2. 当前模块
 
@@ -27,132 +28,120 @@
 - `KnowledgeBaseModule`
 - `DocumentModule`
 - `ProcessingModule`
+- `EmbeddingModule`
 
-`ProcessingModule` 当前结构：
+当前新增的 Embedding 结构：
 
 ```text
-server/src/modules/processing/
-├── processing.module.ts
-├── chunking/
-│  ├── chunk.types.ts
-│  ├── chunking.service.ts
-│  ├── text-cleaner.ts
-│  └── text-splitter.ts
-└── parsing/
-   ├── parsed-document.types.ts
-   ├── parsed-result.store.ts
-   ├── parsing.service.ts
-   ├── pdf.parser.ts
-   └── plain-text.parser.ts
+server/src/modules/embedding/
+├── embedding-client.ts
+├── embedding.module.ts
+├── embedding.service.ts
+└── embedding.types.ts
 
 server/src/scripts/
 ├── parse-document.ts
-└── chunk-document.ts
+├── chunk-document.ts
+└── embed-document.ts
 ```
+
+`EmbeddingModule` 通过 `AppModule` 接入，仅导出 `EmbeddingService`。它读取既有 `Document` / `DocumentChunk`，不改 T05/T06 解析和切片逻辑。
 
 ## 3. 当前接口和 CLI
 
-HTTP 接口仍为既有 T04 契约，T06 不新增切片 HTTP 触发接口：
-
-| 方法 | 路径 | 成功状态码 | 说明 |
-|---|---|---:|---|
-| GET | `/api/health` | 200 | 健康检查 |
-| POST | `/api/knowledge-bases` | 201 | 创建知识库 |
-| GET | `/api/knowledge-bases` | 200 | 知识库列表 |
-| GET | `/api/knowledge-bases/:id` | 200 | 知识库详情 |
-| DELETE | `/api/knowledge-bases/:id` | 204 | 删除知识库 |
-| POST | `/api/knowledge-bases/:kbId/documents` | 202 | multipart 上传单文件，字段名 `file` |
-| GET | `/api/knowledge-bases/:kbId/documents` | 200 | 文档列表 |
-| GET | `/api/documents/:id` | 200 | 文档详情，含 `chunks` 预览数组，最多 20 条 |
-| DELETE | `/api/documents/:id` | 204 | 删除文档记录、磁盘文件和解析暂存；chunk 由 FK 级联删除 |
+HTTP 接口仍为既有 T04/T06 契约，T07 不新增 Embedding HTTP 触发接口。
 
 内部 CLI：
 
 ```bash
 pnpm --filter server parse:document <documentId>
 pnpm --filter server chunk:document <documentId>
+pnpm --filter server embed:document <documentId>
 ```
 
-`chunk:document` 成功时 stdout 只输出摘要 JSON：
+`embed:document` 成功时 stdout 只输出摘要 JSON，不输出文本或向量：
 
 ```json
-{"documentId":98,"chunkCount":8,"totalChars":3428}
+{"documentId":6,"chunkCount":53,"vectorDimension":1024,"batchCount":3}
 ```
 
 失败时 stderr 输出：
 
 ```text
-切片失败：<中文错误摘要>
+向量化失败：<中文错误摘要>
 ```
 
 ## 4. 配置
 
-T06 新增切片配置：
+T06 切片配置保持不变：
 
 | 环境变量 | 默认值 | 校验 |
 |---|---:|---|
-| `CHUNK_SIZE` | 500 | 整数，100–10000 |
-| `CHUNK_OVERLAP` | 100 | 整数，0–9999，且必须小于 `CHUNK_SIZE` |
+| `CHUNK_SIZE` | 500 | 整数，100-10000 |
+| `CHUNK_OVERLAP` | 100 | 整数，0-9999，且必须小于 `CHUNK_SIZE` |
+
+T07 新增 Embedding 配置：
+
+| 环境变量 | 实际默认/样例 | 校验 |
+|---|---:|---|
+| `EMBEDDING_BASE_URL` | `https://api.openai.com/v1` | 非空字符串 |
+| `EMBEDDING_API_KEY` | `.env.example` 为占位值；本地验收为 `sk-mock-key` | 非空字符串 |
+| `EMBEDDING_MODEL` | `text-embedding-3-small` | 非空字符串 |
+| `EMBEDDING_DIMENSION` | 1024 | 整数，1-8192 |
+| `EMBEDDING_BATCH_SIZE` | 20 | 整数，1-100 |
+| `EMBEDDING_TIMEOUT_MS` | 30000 | 整数，1000-300000 |
+| `EMBEDDING_MAX_RETRIES` | 3 | 整数，0-10 |
+| `EMBEDDING_MOCK` | false；本地验收设为 true | 可选布尔值 |
 
 `configuration.ts` 暴露：
 
 ```ts
-chunk: {
-  size: number;
-  overlap: number;
+embedding: {
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+  dimension: number;
+  batchSize: number;
+  timeoutMs: number;
+  maxRetries: number;
+  mock: boolean;
 }
 ```
 
-本地 git-ignored `.env` 已同步加上这两个默认值，避免 CLI/服务启动时缺失配置。
+## 5. Embedding 客户端
 
-## 5. 清洗规则
+- `EmbeddingClient.embed(texts)` 接收字符串数组；空数组直接返回 `[]`。
+- `EMBEDDING_MOCK=true` 时不发 HTTP 请求，使用 `sha256(text)` 生成确定性向量，维度等于 `EMBEDDING_DIMENSION`，数值映射到 `[-1, 1]` 后做 L2 归一化。
+- 非 Mock 模式使用 Node 20 内置 `fetch`，POST 到 `{EMBEDDING_BASE_URL}/embeddings`。
+- 请求体为 `{ model, input: texts }`，认证为 `Authorization: Bearer <apiKey>`。
+- 使用 `AbortController` 实现超时。
+- 可重试错误：超时、网络错误、429、500、502、503、504。
+- 不重试错误：400、401、403、404、其他 4xx、非 JSON 响应、响应结构不兼容、index 不连续、数量/维度校验失败。
+- 重试策略：初始请求 + `EMBEDDING_MAX_RETRIES` 次重试，指数退避 `1000ms * 2^attempt`，最大 30000ms，附加 0-500ms jitter；429 支持 `Retry-After` 秒数。
+- 客户端会按响应 `data[].index` 排序，并校验 index 从 0 连续。
+- 日志不打印 API key、请求文本、响应正文或向量内容。
 
-`cleanText(text)` 是纯函数，不新增依赖：
+## 6. Embedding 服务
 
-- `\r\n` 和独立 `\r` 统一为 `\n`。
-- 删除零宽字符：`\u200B`、`\u200C`、`\u200D`、`\uFEFF`。
-- 3 个及以上连续换行压缩为 2 个换行。
-- 仅做首尾 `trim()`。
+- `EmbeddingService.embedDocument(documentId)` 先查 `Document`，不存在抛 `NotFoundException('文档不存在')`。
+- `completed` 文档直接拒绝：`文档已完成向量化，禁止重复嵌入`，且不改状态。
+- 其他状态进入执行后先更新为 `embedding` 并清空 `errorMessage`。
+- 按 `chunkIndex ASC` 读取既有 `DocumentChunk`；无 chunk 时失败：`文档尚未切片或切片为空，请先执行 pnpm --filter server chunk:document <id>`。
+- 按 `EMBEDDING_BATCH_SIZE` 串行分批调用 `EmbeddingClient.embed()`。
+- 每批校验返回向量数量等于 batch 长度、每条维度等于 `EMBEDDING_DIMENSION`、数值均为 finite number。
+- 成功后返回内存 `EmbeddingResult`，包含每个 chunk 的 `chunkId`、`qdrantPointId` 和 `vector`，但不写入数据库。
+- 成功后状态保持 `embedding`，`document.chunkCount` 不改。
+- 失败时将文档置为 `failed`，写入最多 300 字符 `errorMessage`，不删除、不修改 `document_chunk`。
+- 同进程同文档并发通过 `Map<number, Promise<EmbeddingResult>>` 复用 in-flight 执行，避免重复调用模型服务。
 
-明确不做：
+## 7. T06 清洗和切片保持现状
 
-- 不清除 Markdown 标记。
-- 不清除页眉页脚。
-- 不改 URL、邮箱、标点、段落内换行和内部空格。
-
-`document_chunk.content` 存储清洗后的文本；T05 `.parsed` 原文不改。
-
-## 6. 切片策略
-
-- PDF、Markdown、TXT 统一走 `ChunkingService.chunkDocument(documentId)`。
-- 输入只来自 T05 `.parsed/{documentId}.json`，并校验 `parsed.fileHash === document.fileHash`。
+- `cleanText()` 仍只做换行统一、零宽字符删除、3 个以上连续换行压缩为 2 个、首尾 `trim()`。
 - PDF 按页独立清洗和切片，不跨页合并，不跨页 overlap。
 - Markdown/TXT 由 T05 的单段 `pageNo=null` 透传。
-- 分隔符优先级：`\n\n`、`\n`、`。`、`！`、`？`、`. `、`! `、`? `、空格、硬切。
 - `chunkIndex` 在文档内从 0 全局连续递增。
 - `charCount = content.length`。
 - `qdrantPointId` 使用 Node.js `crypto.randomUUID()` 生成。
-
-## 7. 状态、事务和幂等
-
-状态流转：
-
-- `pending|failed|chunking -> chunking`。
-- 成功后保持 `chunking`，并更新 `chunkCount=N`。
-- 失败后置 `failed`，写 `errorMessage`，并重置 `chunkCount=0`。
-- `embedding` / `completed` 会被拒绝切片，避免覆盖后续阶段数据。
-
-事务边界：
-
-- `delete old chunks + batch insert new chunks + update document.chunkCount/status` 在一个 TypeORM transaction 内完成。
-- 每批最多写入 500 条 `DocumentChunk`。
-- 失败 catch 会兜底删除该 document 的 chunks，再将文档置为 failed/0，避免半成品残留。
-
-幂等：
-
-- `status=chunking && chunkCount>0` 时直接短路返回，不重写 chunks。
-- `failed` 或 `chunking && chunkCount=0` 可重试；重试时事务内先删旧 chunks，再插入新 chunks。
-- 同进程并发用 `Map<number, Promise<ChunkResult>>` 复用同一个 in-flight Promise。
 
 ## 8. 已验证结果
 
@@ -162,35 +151,55 @@ chunk: {
 |---|---|
 | `pnpm --filter server build` | 通过 |
 | `pnpm --filter web type-check` | 通过 |
-| `DB_PORT=3307 pnpm --filter server migration:show` | 通过，仅 2 条历史 migration |
+| `DB_HOST=127.0.0.1 DB_PORT=3307 DB_PASSWORD=root123 pnpm --filter server migration:run` | 通过，在临时 MySQL 执行 2 条历史 migration |
 
-T06 验收摘要：
+T07 样例数据：
 
-| 场景 | 结果 |
+| 文档 | 结果 |
 |---|---|
-| 多页 PDF | `documentId=103`，解析 3 页，切片 3 条，`pageNo=1,2,3`，`chunkIndex=0..2` |
-| 短 TXT | `documentId=97`，切片 1 条，`pageNo=null` |
-| 长 TXT | `documentId=98`，切片 8 条，`chunkIndex=0..7`，重复执行前后 `chunkCount=8` 且 `qdrantPointId` 不变 |
-| 中文 Markdown | `documentId=99`，切片 1 条，`pageNo=null`，保留 `#` / `**` 等 Markdown 标记，内容含中文 |
-| 清洗后为空 | `documentId=100`，零宽字符文本 T05 可解析，T06 清洗后失败：`清洗后无可切片内容`，`chunkCount=0`，无 chunk 残留 |
-| 未解析直接切片 | `documentId=101`，失败：`文档尚未解析或解析结果已丢失，请先执行 pnpm --filter server parse:document <id>` |
-| fileHash 不匹配 | `documentId=102`，失败：`解析结果与文档不匹配，请重新解析` |
-| 失败重试 | 手动模拟 `documentId=98` 为 failed/0 且保留旧 chunks 后重试，旧 chunks 被删除并重建，`chunkCount=8` |
-| 同进程并发 | `documentId=104`，`Promise.all` 两次调用返回同一结果对象，`sameObject=true`，`chunkCount=5` |
-| 文档详情预览 | `GET /api/documents/98` 返回 `chunks` 8 条，content 截断到 200 字以内 |
-| 删除联动 | 删除已切片 Markdown 文档返回 204，`document_chunk` 为 0，`.parsed/{id}.json` 消失 |
-| 配置边界 | `CHUNK_SIZE=100 CHUNK_OVERLAP=100` 启动失败：`CHUNK_OVERLAP 必须小于 CHUNK_SIZE` |
-| 范围扫描 | 未新增 Embedding/Qdrant/Chat/SSE/Rerank 实现；搜索仅命中既有字段、状态枚举和注释 |
-| 清理 | 验收后 `knowledge_base=0`、`document=0`、`document_chunk=0`，`.parsed` 无残留文件 |
+| `short.txt` | 解析 1 页，切片 1 条，Embedding 输出 `chunkCount=1, vectorDimension=1024, batchCount=1` |
+| `long-cn.txt` | 解析 1 页，切片 8 条，Embedding 输出 `chunkCount=8, vectorDimension=1024, batchCount=1` |
+| `sample.md` | 解析 1 页，切片 1 条，Embedding 输出 `chunkCount=1, vectorDimension=1024, batchCount=1` |
+| `two-pages.pdf` | 解析 2 页，切片 2 条，DB 查询 `pageNo=1,2`，Embedding 输出 `chunkCount=2, vectorDimension=1024, batchCount=1` |
+| `batch-long.txt` | 解析 1 页，切片 53 条，默认 batch size 20 下 Embedding 输出 `chunkCount=53, vectorDimension=1024, batchCount=3` |
 
-补充说明：本次用 ReportLab 生成的中文 PDF 经 pdf.js 提取后中文显示为 `?`，因此 PDF 验收只断言了多页页码归属和 ASCII marker；中文内容保真用 Markdown/TXT 样本完成验证。未把该项虚构为“中文 PDF 内容命中”。
+数据库查询确认：
+
+- `document` 最终状态：成功文档均为 `embedding`，`error_message=NULL`；未切片 `blank.txt` 为 `failed`。
+- `document_chunk` 聚合：`short=1`、`long-cn=8`、`sample.md=1`、`two-pages.pdf=2`、`batch-long=53`。
+- `chunkIndex` 均从 0 连续到 `chunkRows - 1`。
+- `COUNT(DISTINCT qdrant_point_id)` 等于 chunk 行数。
+- `document_chunk` 仍只有 T06 字段，没有 vector 列。
+- `SHOW TABLES` 仍只有 `conversation`、`document`、`document_chunk`、`knowledge_base`、`message`、`message_reference`、`migrations`。
+
+错误和重试：
+
+- 未切片 `blank.txt` 执行 `embed:document` 失败，文档置 `failed`，`chunk_rows=0`。
+- 手动将 `sample.md` 置为 `completed` 后执行 `embed:document` 被拒绝，状态保持 `completed`，随后测试脚本恢复为 `embedding`。
+- 受控 HTTP 服务返回 3 维向量，`long-cn.txt` 失败为 `Embedding 维度不一致：index=0，expected=1024，actual=3`，chunk 保留 8 行；随后 mock 重试成功回到 `embedding`。
+- 受控 HTTP 服务首个请求返回 500，客户端执行 1 次重试；对 53 chunk 文档并发调用两次，实际 HTTP 请求数为 4（首批失败一次 + 3 个成功批次），两次调用均返回 53 个内存向量。
+- 受控 HTTP 服务逆序返回 `data[]`，客户端按 index 排序后，前两个 chunk 的向量起始值为 `0`、`1`。
+- 受控 HTTP 服务延迟 1500ms、客户端 timeout 1000ms 时，返回 `Embedding API 请求超时（1000ms）`。
+- Mock 客户端验证：空数组返回长度 0；同文本两次向量完全一致；维度 1024；L2 norm 为 1。
+
+范围扫描：
+
+- `rg "\bany\b" server/src/modules/embedding server/src/scripts/embed-document.ts server/src/config`：无命中。
+- `rg "QdrantClient|@qdrant|upsert|search\(|createCollection|vector-store|chat/stream|text/event-stream|EventSource|rerank|Rerank|LLM|Chat" server/src/modules/embedding server/src/scripts/embed-document.ts server/src/app.module.ts server/package.json`：无命中。
+- 真实外部 Embedding API 未执行；本次实际模型调用验收使用 `EMBEDDING_MOCK=true` 和本地受控 HTTP 服务。
+
+清理：
+
+- 临时后端进程、临时 MySQL 3307 已停止。
+- `tmp-t07-files`、`tmp-t07-mysql`、临时日志已删除。
+- 本次上传残留 `server/uploads/1` 与 `.parsed/1,2,3,5,6.json` 已删除。
 
 ## 9. 当前未实现范围
 
 以下仍属于后续任务：
 
-- Embedding
 - Qdrant collection/upsert/search/delete
+- 向量持久化
 - 向量检索
 - LLM / Chat / SSE
 - Rerank
@@ -202,20 +211,20 @@ T06 验收摘要：
 
 ## 10. 已知问题
 
-1. 默认 `localhost:3306` 仍会打到宿主机 MySQL，本次验收使用临时 `localhost:3307 -> Compose mysql:3306` 转发。
-2. 本次生成的中文 PDF 样本文本映射不适合 pdf.js 中文内容断言；中文切片质量已通过 Markdown/TXT 验证，多页 PDF 页码归属已单独验证。
-3. T06 不做页眉页脚清理，避免启发式误删。
-4. 直接删除知识库仍不会同步删除该知识库上传目录；本次验收后手动清理了测试目录。
-5. `parsing` / `embedding` 崩溃残留仍需 T07+ 启动恢复机制处理；T06 只覆盖 `chunking` 重触发。
+1. Docker daemon 本次无法启动；默认 `localhost:3306` 仍会打到宿主机 MySQL，且 `root/root123` 认证失败。T07 验收使用临时 MySQL 3307 完成。
+2. 未执行真实外部 Embedding API 调用；缺少真实 API key 时仅用 Mock 和本地受控 HTTP 服务验收。
+3. T07 没有启动恢复钩子；进程重启后的 `embedding` 状态文档可通过再次执行 `embed:document` 重试。
+4. T07 不保存向量，因此服务重启后内存向量结果不会保留；这是 T08 前的设计边界。
+5. T06 生成 PDF 样例时 pdf.js 对部分字体会输出标准字体 warning，不影响本次两页页码和 embedding 验收。
 6. 时间字段 8 小时偏移、`ParsePositiveIntPipe` 宽松数字语法仍为既有遗留问题。
 
-## 11. 进入 T07 条件
+## 11. 进入 T08 条件
 
-代码层面具备进入 T07 条件：
+代码层面具备进入 T08 条件：
 
-- 成功切片文档已稳定停留在 `status='chunking'` 且 `chunkCount>0`。
-- `document_chunk` 已包含 T07 所需字段：`content`、`kbId`、`documentId`、`chunkIndex`、`pageNo`、`qdrantPointId`。
-- `chunkIndex` 连续、`charCount` 与 content 长度一致、失败重试无重复 chunk。
-- 没有新增 schema/migration，也没有提前实现 Embedding 或 Qdrant 写入。
-
-进入 T07 前仍建议处理默认 DB 连接冲突，避免继续依赖临时 3307 转发。
+- 成功向量化文档稳定停留在 `status='embedding'`。
+- `EmbeddingResult` 已按 `chunkIndex ASC` 提供 T08 需要的 `chunkId`、`qdrantPointId` 和 `vector`。
+- 批处理、超时、重试、数量/顺序/维度校验已覆盖。
+- 失败不会删除或重复生成 chunk，重试复用既有 `document_chunk`。
+- 同进程同文档并发不会重复调用模型服务。
+- 未新增 schema/migration，也没有提前实现 Qdrant 写入、检索、LLM、Chat、SSE 或前端。

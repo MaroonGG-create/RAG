@@ -20,6 +20,16 @@ export interface AppConfiguration {
     size: number;
     overlap: number;
   };
+  embedding: {
+    baseUrl: string;
+    apiKey: string;
+    model: string;
+    dimension: number;
+    batchSize: number;
+    timeoutMs: number;
+    maxRetries: number;
+    mock: boolean;
+  };
 }
 
 export default function configuration(): AppConfiguration {
@@ -46,6 +56,16 @@ export default function configuration(): AppConfiguration {
     chunk: {
       size: Number(process.env.CHUNK_SIZE ?? 500),
       overlap: Number(process.env.CHUNK_OVERLAP ?? 100),
+    },
+    embedding: {
+      baseUrl: process.env.EMBEDDING_BASE_URL ?? '',
+      apiKey: process.env.EMBEDDING_API_KEY ?? '',
+      model: process.env.EMBEDDING_MODEL ?? '',
+      dimension: Number(process.env.EMBEDDING_DIMENSION ?? 1024),
+      batchSize: Number(process.env.EMBEDDING_BATCH_SIZE ?? 20),
+      timeoutMs: Number(process.env.EMBEDDING_TIMEOUT_MS ?? 30000),
+      maxRetries: Number(process.env.EMBEDDING_MAX_RETRIES ?? 3),
+      mock: process.env.EMBEDDING_MOCK === 'true',
     },
   };
 

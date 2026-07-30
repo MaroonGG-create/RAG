@@ -8,6 +8,7 @@ import { validateEnvironment } from './config/env.validation';
 import { DatabaseModule } from './database/database.module';
 import { TypeOrmConfigService } from './database/typeorm.config';
 import { DocumentModule } from './modules/document/document.module';
+import { EmbeddingModule } from './modules/embedding/embedding.module';
 import { HealthModule } from './modules/health/health.module';
 import { KnowledgeBaseModule } from './modules/knowledge-base/knowledge-base.module';
 import { ProcessingModule } from './modules/processing/processing.module';
@@ -30,6 +31,7 @@ import { ProcessingModule } from './modules/processing/processing.module';
     KnowledgeBaseModule,
     DocumentModule,
     ProcessingModule,
+    EmbeddingModule,
   ],
 })
 export class AppModule {}

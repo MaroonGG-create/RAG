@@ -1,6 +1,7 @@
 # T06 文本清洗与切片完成报告
 
 > 验收日期：2026-07-29（Asia/Shanghai）
+> 收尾核对日期：2026-07-30（Asia/Shanghai）
 > 工作区：`D:\Users\Documents\RAG`
 > 实际任务文档：`docs/task-06-text-cleaning-and-chunking.md`
 > 说明：用户提到的 `docs/tasks/task-06-text-cleaning-and-chunking.md` 在当前仓库不存在，实际执行依据为仓库中的 `docs/task-06-text-cleaning-and-chunking.md`。
@@ -12,6 +13,8 @@
 T06 范围内的文本基础清洗、PDF/Markdown/TXT 统一切片、PDF 页码保留、连续 `chunkIndex`、`charCount`、`qdrantPointId` UUID、`DocumentChunk` 批量写入、`document.chunkCount` 更新、状态流转、失败清理、重试幂等和同进程并发控制均已实现并通过真实运行验收。
 
 本阶段未新增数据库表、未生成 migration、未修改实体定义，也未实现 Embedding、Qdrant 写入、向量检索、LLM、Chat、SSE、前端页面或 Rerank。
+
+2026-07-30 收尾仅核对当前文档、代码范围和 migration 文件列表；未重新执行构建或验收脚本，以下测试结果均为 2026-07-29 T06 实施时的实际执行结果。
 
 ## 2. 新增和修改文件
 

@@ -1,8 +1,10 @@
 import { plainToInstance, Type } from 'class-transformer';
 import {
   IsDefined,
+  IsBoolean,
   IsInt,
   IsNotEmpty,
+  IsOptional,
   IsString,
   IsUrl,
   Max,
@@ -83,6 +85,54 @@ class EnvironmentVariables {
   @Min(0)
   @Max(9999)
   CHUNK_OVERLAP!: number;
+
+  @IsDefined()
+  @IsString()
+  @IsNotEmpty()
+  EMBEDDING_BASE_URL!: string;
+
+  @IsDefined()
+  @IsString()
+  @IsNotEmpty()
+  EMBEDDING_API_KEY!: string;
+
+  @IsDefined()
+  @IsString()
+  @IsNotEmpty()
+  EMBEDDING_MODEL!: string;
+
+  @IsDefined()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(8192)
+  EMBEDDING_DIMENSION!: number;
+
+  @IsDefined()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  EMBEDDING_BATCH_SIZE!: number;
+
+  @IsDefined()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1000)
+  @Max(300000)
+  EMBEDDING_TIMEOUT_MS!: number;
+
+  @IsDefined()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(10)
+  EMBEDDING_MAX_RETRIES!: number;
+
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  EMBEDDING_MOCK?: boolean;
 }
 
 export function validateEnvironment(
