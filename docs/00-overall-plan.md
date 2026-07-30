@@ -1,6 +1,6 @@
 # Mini RAG 知识库系统 — 第一版总体方案
 
-> 版本：v1.6（MVP 设计基线，T07 修订）
+> 版本：v1.7（MVP 设计基线，T08 修订）
 > 定位：个人开发、简历展示、面试讲解
 > 原则：先设计后编码、接口先行、数据结构先行、不扩大 MVP 范围
 
@@ -87,7 +87,7 @@ Rerank 仅作为基础版本验收后的可选优化项，不在本方案任务�
 | MySQL | 8.0 | 关系库 | 开发者熟悉 |
 | class-validator | ^0.14 | DTO 校验 | NestJS 标准组合 |
 | @nestjs/swagger | ^8 | API 文档 | 接口契约可视化，方便联调验收 |
-| @qdrant/js-client-rest | ^1.12 | Qdrant 客户端 | 官方客户端 |
+| @qdrant/js-client-rest | 1.12.0（锁定） | Qdrant 客户端 | 官方客户端；与 Qdrant Server v1.12.4 对齐，CJS 入口兼容 Node 20 + NestJS 10 |
 | pdfjs-dist | 2.16.105（锁死） | PDF 逐页解析 | T05 已选定；UMD/CJS 可在 Node 20 + NestJS 10 下直接加载，`getPage().getTextContent()` 原生保留页码；详见 v1.4 修订 |
 | markdown-it / 直接读文本 | — | MD/TXT 解析 | MD 按纯文本处理即可（MVP 不渲染） |
 | multer（Nest 内置） | — | 文件上传 | 磁盘存储，避免大文件进内存 |
@@ -119,7 +119,7 @@ Rerank 仅作为基础版本验收后的可选优化项，不在本方案任务�
  ⑧ embed：分批(默认20条/批)调用 Embedding API，失败指数退避重试3次
       status → embedding；T07 成功后 status 留在 embedding，表示“已向量化，待写入 Qdrant”
  ⑨ upsert Qdrant：point id=chunk.qdrant_point_id，vector + payload
- ⑩ document.status=completed, chunk_count=N
+ ⑩ document.status=completed, chunk_count=N；T08 成功后进入文档处理终态
      任一步失败：status=failed, error_message=具体错误，已写入的向量按 documentId 清除
 ```
 
@@ -286,7 +286,7 @@ POST /api/chat/stream {knowledgeBaseId, question, conversationId?}
 | document | `src/modules/document/` | 上传、哈希去重、列表、删除 | 依赖 processing、vector-store |
 | processing | `src/modules/processing/` | 解析(cleaner/splitter/parser)、流水线编排、状态机 | 依赖 embedding、vector-store |
 | embedding | `src/modules/embedding/` | OpenAI 兼容 Embedding 客户端、Mock 模式、分批、重试、读取 DocumentChunk 并返回内存向量结果 | client 仅依赖 config；service 依赖 document 实体 |
-| vector-store | `src/modules/vector-store/` | Qdrant 客户端封装：建 collection、维度校验、upsert、search、按过滤删除 | 仅依赖 config |
+| vector-store | `src/modules/vector-store/` | Qdrant 客户端封装：建 collection、维度校验、payload 索引、upsert、按过滤删除；T09 前不实现 search | client 仅依赖 config；service 依赖 embedding 和 document 实体 |
 | chat | `src/modules/chat/` | 检索 → Prompt → LLM 流式调用 → SSE 输出 | 依赖 vector-store、embedding、conversation |
 | llm | `src/modules/llm/` | OpenAI 兼容 Chat 客户端（流式） | 仅依赖 config |
 | conversation | `src/modules/conversation/` | 会话、消息、引用的存取 | 依赖 database |
@@ -402,6 +402,8 @@ mini-rag/
 | `DB_HOST / DB_PORT / DB_USER / DB_PASSWORD / DB_NAME` | localhost / 3306 / root / root123 / mini_rag | MySQL 连接 |
 | `QDRANT_URL` | http://localhost:6333 | Qdrant 地址 |
 | `QDRANT_COLLECTION` | rag_chunks | collection 名 |
+| `QDRANT_UPSERT_BATCH_SIZE` | 100 | 每批 upsert 的 point 数 |
+| `QDRANT_MOCK` | false | 本地验收用内存向量存储，不调用真实 Qdrant |
 | `EMBEDDING_BASE_URL` / `EMBEDDING_API_KEY` / `EMBEDDING_MODEL` | 无默认（必填） | Embedding 服务，OpenAI 兼容 |
 | `EMBEDDING_DIMENSION` | 1024 | 向量维度，必须与模型一致 |
 | `EMBEDDING_BATCH_SIZE` | 20 | 每批切片数 |
@@ -463,9 +465,9 @@ mini-rag/
 |---|---|---|---|
 | 1 | `pdf-parse` 在 NestJS 下的模块加载与页码稳定性风险 | T05 卡壳或页码不可靠 | **已关闭**：T05 改用并锁死 `pdfjs-dist@2.16.105`，pdfjs 接触集中在单一兼容层文件；2.x 停更风险由锁版本和窄封装对冲 |
 | 2 | 更换 Embedding 模型导致维度与已建 collection 不匹配 | 检索静默失效或报错 | 启动时强校验并 fail-fast；README 写明重建步骤 |
-| 3 | MySQL 与 Qdrant 无双写事务，删除/处理中断可能残留 | 脏数据 | 先删向量后删库的幂等顺序 + 失败中止可重试 + 提供核对脚本（chunk_count vs qdrant count） |
+| 3 | MySQL 与 Qdrant 无双写事务，删除/处理中断可能残留 | 脏数据 | T08 已实现重试前按 documentId 清旧向量、写入失败补偿清理、写入数量校验，并在文档/知识库删除前调用向量清理方法 |
 | 4 | SSE 经 nginx 缓冲导致前端收不到流 | 交付环境流式失效 | 响应头 `X-Accel-Buffering: no` + nginx `proxy_buffering off`，T17 验收项 |
-| 5 | 进程内异步处理，服务重启后处理中文档卡死 | 状态不一致 | T06 已支持 chunking 状态重触发；T07 已支持 embedding 状态重试、失败置 failed、同文档并发去重；parsing 崩溃恢复仍需后续启动恢复机制处理 |
+| 5 | 进程内异步处理，服务重启后处理中文档卡死 | 状态不一致 | T06 已支持 chunking 状态重触发；T07/T08 已支持 embedding/failed 状态重触发和同文档并发去重；completed 防重复；parsing 崩溃恢复仍需后续启动恢复机制处理 |
 | 6 | 字符数代替 token 数，中文场景估算偏差 | 上下文可能截断 | MVP 接受；CONTEXT_MAX_CHARS 保守取 4000；面试作为已知取舍讲解 |
 | 7 | 模型服务限流/超时 | 处理失败率上升 | T07 已实现分批、超时、指数退避重试、返回数量/顺序/维度校验，失败落 error_message |
 | 8 | 文档处理无重试界面，失败只能重传 | 体验差 | MVP 接受（重传会撞哈希去重 → 允许 failed 状态文档被同文件重新上传覆盖重试，写进 T04 规则） |
@@ -534,3 +536,14 @@ mini-rag/
 | 3 | §15 风险 7 更新：Embedding 调用的分批、超时、指数退避与返回校验已在 T07 实现 | 降低限流/超时导致的失败率，并避免数量、顺序、维度错配静默进入 T08 |
 | 4 | §15 风险 5 更新：`embedding` 状态重试由 T07 覆盖 | T07 同文档内存并发去重，失败仅更新文档状态和错误信息；重试复用已有 chunk，不生成重复数据 |
 | 5 | §7 后端模块补充：`src/modules/embedding/` 已创建 | T07 新增独立 Embedding 模块，暂不实现 Qdrant、检索、LLM、Chat 或前端 |
+
+### v1.7（T08 设计时修订，项目负责人确认）
+
+| # | 变更 | 原因 |
+|---|---|---|
+| 1 | §4.1 状态语义补充：T08 成功后 `status=completed` | T08 完成 Qdrant 写入，是当前文档处理流水线终态 |
+| 2 | §7 后端模块补充：`vector-store` 模块在 T08 创建 | 新增 `VectorStoreModule`，负责 Qdrant Collection 自举、维度/距离校验、payload 索引、upsert 与按过滤删除；T09 前不实现检索 |
+| 3 | §12 Qdrant 环境变量补充 `QDRANT_UPSERT_BATCH_SIZE`、`QDRANT_MOCK` | T08 首次连接 Qdrant，需要显式配置 upsert 批量大小和无 Docker 环境验收模式 |
+| 4 | §15 风险 3 更新：双写一致性由 T08 部分覆盖 | T08 实现重试前清旧向量、失败补偿清理、写入数量校验，并将文档/知识库删除接入向量清理 |
+| 5 | §15 风险 5 更新：`embedding`/`failed` 状态的向量写入重试由 T08 覆盖 | T08 支持从 `embedding`/`failed` 触发写入，成功置 `completed`，同文档并发去重，`completed` 防重复 |
+| 6 | §3.2 `@qdrant/js-client-rest` 版本精确锁定为 `1.12.0` | 与 Qdrant Server v1.12.4 对齐，保持 Node 20 + NestJS 10 CJS 运行时兼容 |

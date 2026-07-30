@@ -63,6 +63,23 @@ class EnvironmentVariables {
   @IsDefined()
   @IsString()
   @IsNotEmpty()
+  QDRANT_COLLECTION!: string;
+
+  @IsDefined()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(1000)
+  QDRANT_UPSERT_BATCH_SIZE!: number;
+
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  QDRANT_MOCK?: boolean;
+
+  @IsDefined()
+  @IsString()
+  @IsNotEmpty()
   UPLOAD_DIR!: string;
 
   @IsDefined()

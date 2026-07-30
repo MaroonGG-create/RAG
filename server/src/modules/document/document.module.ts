@@ -5,6 +5,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { KnowledgeBase } from '../knowledge-base/entities/knowledge-base.entity';
 import { ProcessingModule } from '../processing/processing.module';
+import { VectorStoreModule } from '../vector-store/vector-store.module';
 import { DocumentController } from './document.controller';
 import { DocumentService } from './document.service';
 import { DocumentChunk } from './entities/document-chunk.entity';
@@ -17,6 +18,7 @@ import { createDocumentUploadOptions } from './storage/document-upload.config';
   imports: [
     TypeOrmModule.forFeature([Document, DocumentChunk, KnowledgeBase]),
     ProcessingModule,
+    VectorStoreModule,
     MulterModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],

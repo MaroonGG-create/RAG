@@ -1,6 +1,7 @@
 import {
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -9,12 +10,16 @@ import { QueryFailedError, Repository } from 'typeorm';
 import { CreateKnowledgeBaseDto } from './dto/create-knowledge-base.dto';
 import { KnowledgeBaseResponseDto } from './dto/knowledge-base-response.dto';
 import { KnowledgeBase } from './entities/knowledge-base.entity';
+import { VectorStoreService } from '../vector-store/vector-store.service';
 
 @Injectable()
 export class KnowledgeBaseService {
+  private readonly logger = new Logger(KnowledgeBaseService.name);
+
   constructor(
     @InjectRepository(KnowledgeBase)
     private readonly knowledgeBaseRepository: Repository<KnowledgeBase>,
+    private readonly vectorStoreService: VectorStoreService,
   ) {}
 
   async create(
@@ -71,7 +76,14 @@ export class KnowledgeBaseService {
   async remove(id: number): Promise<void> {
     await this.findOne(id);
 
-    // T08+ 将在此处先清理 Qdrant 向量再删 MySQL 数据。
+    try {
+      await this.vectorStoreService.deleteByKnowledgeBaseId(id);
+    } catch (error: unknown) {
+      this.logger.warn(
+        `知识库向量清理失败（不阻止删除）：knowledgeBaseId=${id}，${this.getErrorMessage(error)}`,
+      );
+    }
+
     await this.knowledgeBaseRepository.delete(id);
   }
 
@@ -81,5 +93,9 @@ export class KnowledgeBaseService {
       error instanceof QueryFailedError &&
       (error.driverError as { code?: string }).code === 'ER_DUP_ENTRY'
     );
+  }
+
+  private getErrorMessage(error: unknown): string {
+    return error instanceof Error ? error.message : '未知错误';
   }
 }

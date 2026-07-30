@@ -16,6 +16,7 @@ import {
 
 import { KnowledgeBase } from '../knowledge-base/entities/knowledge-base.entity';
 import { ParsedResultStore } from '../processing/parsing/parsed-result.store';
+import { VectorStoreService } from '../vector-store/vector-store.service';
 import {
   DocumentDetailResponseDto,
   DocumentFileExtension,
@@ -40,6 +41,7 @@ export class DocumentService {
     private readonly dataSource: DataSource,
     private readonly storageService: DocumentStorageService,
     private readonly parsedResultStore: ParsedResultStore,
+    private readonly vectorStoreService: VectorStoreService,
   ) {}
 
   async upload(
@@ -181,7 +183,14 @@ export class DocumentService {
   async remove(id: number): Promise<void> {
     const document = await this.findDocumentEntity(id);
 
-    // T08+ 将在 MySQL 事务前先清理 Qdrant 向量，保持“向量→库→磁盘”的顺序。
+    try {
+      await this.vectorStoreService.deleteByDocumentId(id);
+    } catch (error: unknown) {
+      this.logger.warn(
+        `文档向量清理失败（不阻止删除）：documentId=${id}，${this.getErrorMessage(error)}`,
+      );
+    }
+
     try {
       await this.dataSource.transaction(async (manager) => {
         const deleteResult = await manager.delete(Document, { id });

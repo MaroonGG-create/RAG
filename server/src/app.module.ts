@@ -12,6 +12,7 @@ import { EmbeddingModule } from './modules/embedding/embedding.module';
 import { HealthModule } from './modules/health/health.module';
 import { KnowledgeBaseModule } from './modules/knowledge-base/knowledge-base.module';
 import { ProcessingModule } from './modules/processing/processing.module';
+import { VectorStoreModule } from './modules/vector-store/vector-store.module';
 
 @Module({
   imports: [
@@ -32,6 +33,7 @@ import { ProcessingModule } from './modules/processing/processing.module';
     DocumentModule,
     ProcessingModule,
     EmbeddingModule,
+    VectorStoreModule,
   ],
 })
 export class AppModule {}

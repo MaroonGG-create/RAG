@@ -20,6 +20,12 @@ export interface AppConfiguration {
     size: number;
     overlap: number;
   };
+  qdrant: {
+    url: string;
+    collection: string;
+    upsertBatchSize: number;
+    mock: boolean;
+  };
   embedding: {
     baseUrl: string;
     apiKey: string;
@@ -56,6 +62,14 @@ export default function configuration(): AppConfiguration {
     chunk: {
       size: Number(process.env.CHUNK_SIZE ?? 500),
       overlap: Number(process.env.CHUNK_OVERLAP ?? 100),
+    },
+    qdrant: {
+      url: process.env.QDRANT_URL ?? '',
+      collection: process.env.QDRANT_COLLECTION ?? 'rag_chunks',
+      upsertBatchSize: Number(
+        process.env.QDRANT_UPSERT_BATCH_SIZE ?? 100,
+      ),
+      mock: process.env.QDRANT_MOCK === 'true',
     },
     embedding: {
       baseUrl: process.env.EMBEDDING_BASE_URL ?? '',
