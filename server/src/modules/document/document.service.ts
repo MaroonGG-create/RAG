@@ -15,10 +15,13 @@ import {
 } from 'typeorm';
 
 import { KnowledgeBase } from '../knowledge-base/entities/knowledge-base.entity';
+import { ParsedResultStore } from '../processing/parsing/parsed-result.store';
 import {
+  DocumentDetailResponseDto,
   DocumentFileExtension,
   DocumentResponseDto,
 } from './dto/document-response.dto';
+import { DocumentChunk } from './entities/document-chunk.entity';
 import { Document } from './entities/document.entity';
 import { DocumentStorageService } from './storage/document-storage.service';
 import { computeFileSha256 } from './utils/file-hash.util';
@@ -30,10 +33,13 @@ export class DocumentService {
   constructor(
     @InjectRepository(Document)
     private readonly documentRepository: Repository<Document>,
+    @InjectRepository(DocumentChunk)
+    private readonly chunkRepository: Repository<DocumentChunk>,
     @InjectRepository(KnowledgeBase)
     private readonly knowledgeBaseRepository: Repository<KnowledgeBase>,
     private readonly dataSource: DataSource,
     private readonly storageService: DocumentStorageService,
+    private readonly parsedResultStore: ParsedResultStore,
   ) {}
 
   async upload(
@@ -161,9 +167,15 @@ export class DocumentService {
     return documents.map(DocumentResponseDto.fromEntity);
   }
 
-  async findOne(id: number): Promise<DocumentResponseDto> {
+  async findOne(id: number): Promise<DocumentDetailResponseDto> {
     const document = await this.findDocumentEntity(id);
-    return DocumentResponseDto.fromEntity(document);
+    const chunks = await this.chunkRepository.find({
+      where: { documentId: id },
+      order: { chunkIndex: 'ASC' },
+      take: 20,
+    });
+
+    return DocumentDetailResponseDto.fromEntity(document, chunks);
   }
 
   async remove(id: number): Promise<void> {
@@ -204,6 +216,7 @@ export class DocumentService {
     await this.storageService.deleteByStoragePath(
       document.storagePath,
     );
+    await this.parsedResultStore.remove(id);
   }
 
   private async assertKnowledgeBaseExists(

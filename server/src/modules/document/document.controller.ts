@@ -16,7 +16,7 @@ import {
 } from '@nestjs/swagger';
 
 import { ParsePositiveIntPipe } from '../../common/pipes/parse-positive-int.pipe';
-import { DocumentResponseDto } from './dto/document-response.dto';
+import { DocumentDetailResponseDto } from './dto/document-response.dto';
 import { DocumentService } from './document.service';
 
 @ApiTags('documents')
@@ -26,12 +26,12 @@ export class DocumentController {
 
   @Get(':id')
   @ApiOperation({ summary: '获取文档详情' })
-  @ApiOkResponse({ type: DocumentResponseDto })
+  @ApiOkResponse({ type: DocumentDetailResponseDto })
   @ApiBadRequestResponse({ description: 'id 必须是正整数' })
   @ApiNotFoundResponse({ description: '文档不存在' })
   findOne(
     @Param('id', ParsePositiveIntPipe) id: number,
-  ): Promise<DocumentResponseDto> {
+  ): Promise<DocumentDetailResponseDto> {
     return this.documentService.findOne(id);
   }
 

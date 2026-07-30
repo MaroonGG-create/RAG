@@ -6,6 +6,8 @@
     "dev": "nest start --watch",
     "build": "nest build",
     "start": "node dist/main.js",
+    "parse:document": "ts-node src/scripts/parse-document.ts",
+    "chunk:document": "ts-node src/scripts/chunk-document.ts",
     "typeorm": "typeorm-ts-node-commonjs -d src/database/data-source.ts",
     "migration:generate": "pnpm run typeorm migration:generate",
     "migration:run": "pnpm run typeorm migration:run",
@@ -24,6 +26,7 @@
     "dotenv": "^16.4.5",
     "multer": "2.0.2",
     "mysql2": "^3.11.5",
+    "pdfjs-dist": "2.16.105",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
     "typeorm": "^0.3.20"

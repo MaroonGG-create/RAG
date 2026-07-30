@@ -88,7 +88,7 @@ Rerank 仅作为基础版本验收后的可选优化项，不在本方案任务�
 | class-validator | ^0.14 | DTO 校验 | NestJS 标准组合 |
 | @nestjs/swagger | ^8 | API 文档 | 接口契约可视化，方便联调验收 |
 | @qdrant/js-client-rest | ^1.12 | Qdrant 客户端 | 官方客户端 |
-| pdf-parse | 1.1.1（锁死） | PDF 解析 | 简单够用；**有已知坑，见 §15 风险 1** |
+| pdfjs-dist | 2.16.105（锁死） | PDF 逐页解析 | T05 已选定；UMD/CJS 可在 Node 20 + NestJS 10 下直接加载，`getPage().getTextContent()` 原生保留页码；详见 v1.4 修订 |
 | markdown-it / 直接读文本 | — | MD/TXT 解析 | MD 按纯文本处理即可（MVP 不渲染） |
 | multer（Nest 内置） | — | 文件上传 | 磁盘存储，避免大文件进内存 |
 
@@ -111,10 +111,10 @@ Rerank 仅作为基础版本验收后的可选优化项，不在本方案任务�
       命中 → 返回 409 + 已存在文档信息，不入库
  ③ 插入 document(status=pending)，异步触发流水线，立即返回 202
  ④ parse：pdf → 按页提取[{pageNo,text}]；md/txt → 整段文本
-      status: pending → parsing
+      status: pending → parsing；T05 成功后回到 pending，表示“已解析，待切片”，解析结果暂存于 uploads/.parsed/{documentId}.json
  ⑤ clean：去多余空白/页眉页脚式重复行/不可见字符（规则见 05 文档）
  ⑥ split：按字符递归切分，chunkSize=500字符, overlap=100字符
-      产出 [{chunkIndex, content, pageNo?}]，status → chunking
+      产出 [{chunkIndex, content, pageNo?}]，status → chunking；T06 成功后 status 留在 chunking，表示“已切片，待向量化”
  ⑦ 写入 document_chunk 行（MySQL，含 qdrant_point_id=uuid v4）
  ⑧ embed：分批(默认20条/批)调用 Embedding API，失败指数退避重试3次
       status → embedding
@@ -458,11 +458,11 @@ mini-rag/
 
 | # | 风险 | 影响 | 应对 |
 |---|---|---|---|
-| 1 | `pdf-parse` 在 NestJS 下有两处已知坑（模块加载触发 debug 代码、ESM 兼容） | T05 可能卡壳 | 锁死 `pdf-parse@1.1.1`，封装 import 兼容层；备选 `pdfjs-dist`；T05 验收先做三格式样例验证再推进 |
+| 1 | `pdf-parse` 在 NestJS 下的模块加载与页码稳定性风险 | T05 卡壳或页码不可靠 | **已关闭**：T05 改用并锁死 `pdfjs-dist@2.16.105`，pdfjs 接触集中在单一兼容层文件；2.x 停更风险由锁版本和窄封装对冲 |
 | 2 | 更换 Embedding 模型导致维度与已建 collection 不匹配 | 检索静默失效或报错 | 启动时强校验并 fail-fast；README 写明重建步骤 |
 | 3 | MySQL 与 Qdrant 无双写事务，删除/处理中断可能残留 | 脏数据 | 先删向量后删库的幂等顺序 + 失败中止可重试 + 提供核对脚本（chunk_count vs qdrant count） |
 | 4 | SSE 经 nginx 缓冲导致前端收不到流 | 交付环境流式失效 | 响应头 `X-Accel-Buffering: no` + nginx `proxy_buffering off`，T17 验收项 |
-| 5 | 进程内异步处理，服务重启后处理中文档卡死 | 状态不一致 | 启动时将 parsing/chunking/embedding 状态重置为 pending 并重新入队（幂等重跑前先清理残留 chunk/向量） |
+| 5 | 进程内异步处理，服务重启后处理中文档卡死 | 状态不一致 | T06 已支持 chunking 状态重触发：chunk_count>0 幂等短路，chunk_count=0 重跑并清理残留 chunk；parsing/embedding 崩溃残留仍需 T07+ 启动恢复机制处理 |
 | 6 | 字符数代替 token 数，中文场景估算偏差 | 上下文可能截断 | MVP 接受；CONTEXT_MAX_CHARS 保守取 4000；面试作为已知取舍讲解 |
 | 7 | 模型服务限流/超时 | 处理失败率上升 | 分批 + 指数退避重试 3 次 + 失败落 error_message |
 | 8 | 文档处理无重试界面，失败只能重传 | 体验差 | MVP 接受（重传会撞哈希去重 → 允许 failed 状态文档被同文件重新上传覆盖重试，写进 T04 规则） |
@@ -503,4 +503,21 @@ mini-rag/
 | 1 | 统一错误结构增强：全局过滤器对 `HttpException` 响应体中显式携带的 `details` 字段予以透传 | T04 重复文件 409 需要在 `details` 中返回已有文档摘要（id/fileName/status）；基础结构 `{code,message}` 不变，无 details 时行为与之前完全一致 |
 | 2 | 错误码段位补充：**415**（文件类型/内容不支持）、**413**（文件超过大小限制） | 原 §9 段位未覆盖上传场景；类型错误选定 415 并在全项目保持一致，不允许 400/415 混用 |
 | 3 | Multer 错误映射规则：`MulterError: LIMIT_FILE_SIZE` → 413，其余 MulterError → 400 | Multer 错误默认会落入未知异常分支变 500，不符合契约；过滤器新增专门分支 |
-| 4 | 文档详情接口（§9 #8）分两阶段交付：T04 仅返回元数据，T05 增量加入切片预览 | 切片依赖 T05 解析流水线，提前实现会产生假数据 |
+| 4 | 文档详情接口（§9 #8）分阶段交付：T04/T05 仅返回元数据，切片预览顺延至 T06 | T05 不写 `document_chunk`；提前实现会产生假数据 |
+
+### v1.4（T05 设计时修订，项目负责人确认）
+
+| # | 变更 | 原因 |
+|---|---|---|
+| 1 | §3.2 后端 PDF 解析库由 `pdf-parse@1.1.1` 改为 `pdfjs-dist@2.16.105` 精确锁定 | 页码引用是后续检索引用链路的硬需求；`pdfjs-dist@2.16.105` 在当前 CJS/NestJS 运行时下可直接使用，并原生逐页提取文本 |
+| 2 | §4.1 状态语义补充：T05 解析成功后 `status` 回到 `pending` | 本阶段禁止 `chunking/embedding/completed`；T06 前 `pending` 表示“已解析，待切片”，解析完成事实由 `.parsed/{documentId}.json` 承载 |
+| 3 | §9 #8 文档详情切片预览顺延至 T06 | T05 不写 `document_chunk`，无可展示切片；提前实现只能产生假数据 |
+
+### v1.5（T06 设计时修订，项目负责人确认）
+
+| # | 变更 | 原因 |
+|---|---|---|
+| 1 | §4.1 状态语义补充：T06 成功后 `status` 留在 `chunking` | `chunking` 在 T06→T07 之间表示“已切片，待向量化”；T07 可据此拣选 `status='chunking' AND chunk_count > 0` 的文档 |
+| 2 | §9 #8 文档详情切片预览在 T06 实现 | v1.3/v1.4 已将该能力顺延至 T06；本阶段写入真实 `document_chunk` 后可展示前 20 条切片预览 |
+| 3 | §12 `CHUNK_SIZE` / `CHUNK_OVERLAP` 环境变量在 T06 实现 | T06 首次使用总体方案中的切片配置，并补充 `CHUNK_OVERLAP < CHUNK_SIZE` 启动校验 |
+| 4 | §15 风险 5 部分关闭：`chunking` 崩溃残留由 T06 幂等处理覆盖 | T06 支持 `chunking` 状态重触发；`chunkCount > 0` 直接短路，`chunkCount = 0` 重跑并清理旧切片；`parsing`/`embedding` 仍需 T07+ 处理 |

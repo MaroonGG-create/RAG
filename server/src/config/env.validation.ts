@@ -69,6 +69,20 @@ class EnvironmentVariables {
   @Min(1)
   @Max(1024)
   MAX_FILE_SIZE_MB!: number;
+
+  @IsDefined()
+  @Type(() => Number)
+  @IsInt()
+  @Min(100)
+  @Max(10000)
+  CHUNK_SIZE!: number;
+
+  @IsDefined()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(9999)
+  CHUNK_OVERLAP!: number;
 }
 
 export function validateEnvironment(

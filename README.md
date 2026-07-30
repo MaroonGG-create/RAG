@@ -60,7 +60,9 @@ curl -X DELETE http://localhost:3000/api/knowledge-bases/1
 ## 文档接口
 
 当前支持 PDF、Markdown 和 TXT 单文件上传。上传成功返回 `202 Accepted`，
-文档状态为 `pending`；文本解析、切片和向量化不属于当前阶段。
+文档状态为 `pending`。T05 提供 CLI 触发文本解析；解析成功后状态仍回到
+`pending`，表示“已解析，待切片”，解析结果暂存在 `server/uploads/.parsed/{documentId}.json`。
+切片、Embedding、Qdrant 写入和 Chat 不属于当前阶段。
 
 ```bash
 # 上传文档
@@ -75,6 +77,11 @@ curl http://localhost:3000/api/documents/1
 
 # 删除文档
 curl -X DELETE http://localhost:3000/api/documents/1
+```
+
+```bash
+# 解析已上传文档，stdout 只输出摘要 JSON，不输出正文
+pnpm --filter server parse:document 1
 ```
 
 ## 数据库迁移

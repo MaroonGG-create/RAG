@@ -10,6 +10,7 @@ import { TypeOrmConfigService } from './database/typeorm.config';
 import { DocumentModule } from './modules/document/document.module';
 import { HealthModule } from './modules/health/health.module';
 import { KnowledgeBaseModule } from './modules/knowledge-base/knowledge-base.module';
+import { ProcessingModule } from './modules/processing/processing.module';
 
 @Module({
   imports: [
@@ -28,6 +29,7 @@ import { KnowledgeBaseModule } from './modules/knowledge-base/knowledge-base.mod
     HealthModule,
     KnowledgeBaseModule,
     DocumentModule,
+    ProcessingModule,
   ],
 })
 export class AppModule {}
