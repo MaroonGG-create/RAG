@@ -1,5 +1,17 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import type { RouteRecordRaw } from 'vue-router'
+import type { LocationQueryValue, RouteRecordRaw } from 'vue-router'
+
+function getRouteNumber(value: LocationQueryValue | LocationQueryValue[]): number | undefined {
+  const rawValue = Array.isArray(value) ? value[0] : value
+
+  if (rawValue === null || rawValue === undefined || rawValue.trim().length === 0) {
+    return undefined
+  }
+
+  const id = Number(rawValue)
+
+  return Number.isInteger(id) && id > 0 ? id : undefined
+}
 
 const routes: RouteRecordRaw[] = [
   {
@@ -21,10 +33,11 @@ const routes: RouteRecordRaw[] = [
   },
   {
     path: '/knowledge-bases/:id/chat',
-    name: 'chat-placeholder',
-    component: () => import('../views/ChatPlaceholderView.vue'),
+    name: 'knowledge-base-chat',
+    component: () => import('../views/ChatView.vue'),
     props: (route) => ({
       knowledgeBaseId: Number(route.params.id),
+      conversationId: getRouteNumber(route.query.conversationId),
     }),
   },
   {

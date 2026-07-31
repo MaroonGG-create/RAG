@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 
 import { DatabaseService } from '../../database/database.service';
 
@@ -10,6 +10,8 @@ export interface HealthResult {
 
 @Injectable()
 export class HealthService {
+  private readonly logger = new Logger(HealthService.name);
+
   constructor(private readonly databaseService: DatabaseService) {}
 
   async getHealth(): Promise<HealthResult> {
@@ -25,7 +27,10 @@ export class HealthService {
     } catch (error: unknown) {
       // 连接恢复后需重新确认 migration 已就绪，不能只依赖连接池自动重连。
       this.databaseService.invalidateReadiness();
-      console.error('数据库健康检查失败：', error);
+      this.logger.error(
+        `数据库健康检查失败：${this.getErrorMessage(error)}`,
+        error instanceof Error ? error.stack : undefined,
+      );
 
       return {
         status: 'ok',
@@ -33,5 +38,9 @@ export class HealthService {
         uptime: process.uptime(),
       };
     }
+  }
+
+  private getErrorMessage(error: unknown): string {
+    return error instanceof Error ? error.message : '未知错误';
   }
 }

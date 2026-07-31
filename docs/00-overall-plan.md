@@ -1,6 +1,6 @@
 # Mini RAG 知识库系统 — 第一版总体方案
 
-> 版本：v2.1（MVP 设计基线，T12 修订）
+> 版本：v2.3（MVP 设计基线，T14 修订）
 > 定位：个人开发、简历展示、面试讲解
 > 原则：先设计后编码、接口先行、数据结构先行、不扩大 MVP 范围
 
@@ -73,10 +73,10 @@ Rerank 仅作为基础版本验收后的可选优化项，不在本方案任务�
 | TypeScript | ~5.6 | 类型 | 全链路类型安全，面试加分 |
 | Vite | ^5.4 | 构建 | 开发体验 |
 | Vue Router | ^4.5 | 路由 | 标准 |
-| Pinia | 可选 | 状态 | T12 未引入；后续如聊天页状态复杂再评估 |
+| Pinia | 可选 | 状态 | T12/T13 未引入；当前前端状态由 composables 管理 |
 | Ant Design Vue | ^4.2 | UI | 表格、上传、Drawer 开箱即用 |
 | Axios | ^1.8 | HTTP | 统一拦截器处理错误码 |
-| SSE | 原生 fetch + ReadableStream | 流式输出 | **不用 EventSource**：它只支持 GET，问答接口需要 POST 携带参数 |
+| SSE | 原生 fetch + ReadableStream | 流式输出 | T13 已用 `fetch` + `ReadableStream` 封装 POST SSE 客户端；**不用 EventSource**，因为问答接口需要 POST 携带参数 |
 
 ### 3.2 后端（server/）
 
@@ -305,11 +305,11 @@ POST /api/knowledge-bases/:id/chat {question, conversationId?}
 | `/` | 重定向到 `/knowledge-bases` | — |
 | `/knowledge-bases` | 知识库列表页 | 卡片列表、新建弹窗、删除确认 |
 | `/knowledge-bases/:id` | 知识库详情页 + 文档管理区 | 库信息头、上传 Dragger（显示进度）、文档表格（状态 Tag 轮询刷新）、删除 |
-| `/knowledge-bases/:id/chat` | 对话页 | T12 仅预留占位路由；T13 实现会话列表、消息流和引用展示 |
+| `/knowledge-bases/:id/chat` | 对话页 | 会话列表、消息流、SSE 流式回答、停止生成和引用展示 |
 
-**状态管理：** T12 使用 Vue composables（`useKnowledgeBases`、`useDocuments`）管理知识库、文档列表和轮询状态，不引入 Pinia；T13 视聊天页复杂度再评估是否需要独立 store。
+**状态管理：** 前端使用 Vue composables 管理状态，不引入 Pinia；T12 的 `useKnowledgeBases`、`useDocuments` 管理知识库/文档，T13 的 `useChat`、`useConversations` 管理聊天与会话。
 
-**API 层：** `src/api/` 按后端模块分文件（knowledge-base.ts / document.ts / chat.ts / conversation.ts），Axios 实例统一 baseURL 与错误码处理；SSE 在 T13 单独封装 `fetchSseStream()` 工具（fetch POST + ReadableStream 解析 `event:/data:` 帧）。
+**API 层：** `src/api/` 按后端模块分文件（knowledge-base.ts / document.ts / chat.ts / conversation.ts），Axios 实例统一 baseURL 与错误码处理；SSE 由 `api/sse.ts` 单独封装 `fetchSseChat()`（fetch POST + ReadableStream 解析 `event:/data:` 帧）。
 
 **状态约定：** 文档处理中每 3 秒轮询列表接口直至全部终态；聊天页区分「连接中 / 生成中 / 完成 / 失败」四态；空知识库、空文档、无引用均有 Empty 态文案。
 
@@ -473,9 +473,9 @@ mini-rag/
 |---|---|---|---|
 | 1 | `pdf-parse` 在 NestJS 下的模块加载与页码稳定性风险 | T05 卡壳或页码不可靠 | **已关闭**：T05 改用并锁死 `pdfjs-dist@2.16.105`，pdfjs 接触集中在单一兼容层文件；2.x 停更风险由锁版本和窄封装对冲 |
 | 2 | 更换 Embedding 模型导致维度与已建 collection 不匹配 | 检索静默失效或报错 | 启动时强校验并 fail-fast；README 写明重建步骤 |
-| 3 | MySQL 与 Qdrant 无双写事务，删除/处理中断可能残留 | 脏数据 | T08 已实现重试前按 documentId 清旧向量、写入失败补偿清理、写入数量校验，并在文档/知识库删除前调用向量清理方法 |
+| 3 | MySQL 与 Qdrant 无双写事务，删除/处理中断可能残留 | 脏数据 | T08 已实现重试前按 documentId 清旧向量、写入失败补偿清理、写入数量校验；T14 补齐知识库删除时的文档文件、解析缓存和上传目录清理 |
 | 4 | SSE 经 nginx 缓冲导致前端收不到流 | 交付环境流式失效 | 响应头 `X-Accel-Buffering: no` + nginx `proxy_buffering off`，T17 验收项 |
-| 5 | 进程内异步处理，服务重启后处理中文档卡死 | 状态不一致 | T06 已支持 chunking 状态重触发；T07/T08 已支持 embedding/failed 状态重触发和同文档并发去重；completed 防重复；parsing 崩溃恢复仍需后续启动恢复机制处理 |
+| 5 | 进程内异步处理，服务重启后处理中文档卡死 | 状态不一致 | T06 已支持 chunking 状态重触发；T07/T08 已支持 embedding/failed 状态重触发和同文档并发去重；T14 新增 `reset:document` / `reset:documents` CLI，可手动将 parsing/chunking/embedding 卡住文档重置为 pending |
 | 6 | 字符数代替 token 数，中文场景估算偏差 | 上下文可能截断 | MVP 接受；CONTEXT_MAX_CHARS 保守取 4000；面试作为已知取舍讲解 |
 | 7 | 模型服务限流/超时 | 处理失败率上升 | T07 已实现分批、超时、指数退避重试、返回数量/顺序/维度校验，失败落 error_message |
 | 8 | 文档处理无重试界面，失败只能重传 | 体验差 | MVP 接受（重传会撞哈希去重 → 允许 failed 状态文档被同文件重新上传覆盖重试，写进 T04 规则） |
@@ -593,3 +593,20 @@ mini-rag/
 | 2 | §8 前端路由更新：文档管理合并进 `/knowledge-bases/:id`，`/knowledge-bases/:id/chat` 仅为 T13 占位 | T12 只实现知识库与文档管理，不实现聊天页和 SSE 客户端 |
 | 3 | §13 任务编号回填：前端知识库与文档页为 T12，前端聊天页为 T13 | T11 已合并 SSE、引用和会话持久化，前端阶段编号顺延 |
 | 4 | 知识库编辑暂不实现 | 当前后端无 PUT/PATCH 更新接口，T12 不修改后端业务逻辑 |
+
+### v2.2（T13 设计时修订，按实际实现回填）
+
+| # | 变更 | 原因 |
+|---|---|---|
+| 1 | §8 `/knowledge-bases/:id/chat` 从占位更新为真实聊天页 | T13 已实现会话列表、消息流、SSE 流式问答、停止生成和引用展示 |
+| 2 | §3.1 前端状态管理确认 T13 仍不引入 Pinia | `useChat` 与 `useConversations` 已覆盖当前聊天状态管理需求 |
+| 3 | §3.1/§8 API 层确认 SSE 客户端为 `fetch` + `ReadableStream` | T11 聊天接口是 POST SSE，不能使用只支持 GET 的 `EventSource` |
+
+### v2.3（T14 集成收口修订，按实际实现回填）
+
+| # | 变更 | 原因 |
+|---|---|---|
+| 1 | §15 风险 3 更新：知识库删除时补齐磁盘文件、解析缓存和上传目录清理 | T14 联调要求删除知识库后关联向量、数据库记录和磁盘残留同步收口 |
+| 2 | §15 风险 5 更新：新增 `reset:document` / `reset:documents` 运维脚本 | 服务重启可能导致处理中状态卡住，T14 提供手动恢复入口，不引入队列或新表 |
+| 3 | README 更新为当前全链路启动、处理、问答和排障说明 | T13 后 README 仍停留在早期解析阶段，T14 要求配置和复现说明与真实实现一致 |
+| 4 | 后端生产代码统一用 Nest `Logger` 记录错误 | T14 要求清理生产 `console.error`，CLI 脚本继续保留 stdout/stderr JSON/错误输出 |

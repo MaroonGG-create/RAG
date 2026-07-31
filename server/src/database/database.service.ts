@@ -1,8 +1,13 @@
-import { Injectable, OnApplicationBootstrap } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  OnApplicationBootstrap,
+} from '@nestjs/common';
 import { DataSource } from 'typeorm';
 
 @Injectable()
 export class DatabaseService implements OnApplicationBootstrap {
+  private readonly logger = new Logger(DatabaseService.name);
   private readinessPromise?: Promise<DataSource>;
 
   constructor(private readonly dataSource: DataSource) {}
@@ -12,7 +17,10 @@ export class DatabaseService implements OnApplicationBootstrap {
       await this.ensureReady();
     } catch (error: unknown) {
       // 数据库暂不可用时保留应用进程，由后续健康检查继续触发重试。
-      console.error('数据库初始化失败：', error);
+      this.logger.error(
+        `数据库初始化失败：${this.getErrorMessage(error)}`,
+        error instanceof Error ? error.stack : undefined,
+      );
     }
   }
 
@@ -42,5 +50,9 @@ export class DatabaseService implements OnApplicationBootstrap {
     await this.dataSource.runMigrations();
 
     return this.dataSource;
+  }
+
+  private getErrorMessage(error: unknown): string {
+    return error instanceof Error ? error.message : '未知错误';
   }
 }

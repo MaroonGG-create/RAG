@@ -75,6 +75,7 @@ function handleDelete(id: number): void {
     :columns="columns"
     :data-source="documents"
     :loading="loading"
+    :locale="{ emptyText: '暂无文档，点击上方上传' }"
     :pagination="{ pageSize: 10, hideOnSinglePage: true }"
     row-key="id"
     size="middle"

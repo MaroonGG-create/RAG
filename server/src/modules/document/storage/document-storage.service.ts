@@ -4,6 +4,7 @@ import {
   copyFile,
   mkdir,
   rename,
+  rm,
   unlink,
 } from 'node:fs/promises';
 import { basename, join } from 'node:path';
@@ -73,6 +74,20 @@ export class DocumentStorageService {
     } catch (error: unknown) {
       this.logger.warn(
         `存储文件删除失败：${storagePath}，${this.getErrorMessage(error)}`,
+      );
+    }
+  }
+
+  async deleteKnowledgeBaseDirectory(
+    knowledgeBaseId: number,
+  ): Promise<void> {
+    const absolutePath = join(this.uploadDir, String(knowledgeBaseId));
+
+    try {
+      await rm(absolutePath, { recursive: true, force: true });
+    } catch (error: unknown) {
+      this.logger.warn(
+        `知识库目录删除失败：${knowledgeBaseId}，${this.getErrorMessage(error)}`,
       );
     }
   }

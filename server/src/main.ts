@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 
-import { ValidationPipe } from '@nestjs/common';
+import { Logger, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory, Reflector } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
@@ -42,6 +42,10 @@ async function bootstrap(): Promise<void> {
 }
 
 bootstrap().catch((error: unknown) => {
-  console.error('服务启动失败：', error);
+  Logger.error(
+    `服务启动失败：${error instanceof Error ? error.message : '未知错误'}`,
+    error instanceof Error ? error.stack : undefined,
+    'Bootstrap',
+  );
   process.exit(1);
 });

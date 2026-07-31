@@ -7,10 +7,13 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { QueryFailedError, Repository } from 'typeorm';
 
+import { Document } from '../document/entities/document.entity';
+import { DocumentStorageService } from '../document/storage/document-storage.service';
+import { ParsedResultStore } from '../processing/parsing/parsed-result.store';
+import { VectorStoreService } from '../vector-store/vector-store.service';
 import { CreateKnowledgeBaseDto } from './dto/create-knowledge-base.dto';
 import { KnowledgeBaseResponseDto } from './dto/knowledge-base-response.dto';
 import { KnowledgeBase } from './entities/knowledge-base.entity';
-import { VectorStoreService } from '../vector-store/vector-store.service';
 
 @Injectable()
 export class KnowledgeBaseService {
@@ -19,7 +22,11 @@ export class KnowledgeBaseService {
   constructor(
     @InjectRepository(KnowledgeBase)
     private readonly knowledgeBaseRepository: Repository<KnowledgeBase>,
+    @InjectRepository(Document)
+    private readonly documentRepository: Repository<Document>,
     private readonly vectorStoreService: VectorStoreService,
+    private readonly storageService: DocumentStorageService,
+    private readonly parsedResultStore: ParsedResultStore,
   ) {}
 
   async create(
@@ -84,7 +91,29 @@ export class KnowledgeBaseService {
       );
     }
 
+    await this.cleanupKnowledgeBaseFiles(id);
+
     await this.knowledgeBaseRepository.delete(id);
+  }
+
+  private async cleanupKnowledgeBaseFiles(
+    knowledgeBaseId: number,
+  ): Promise<void> {
+    const documents = await this.documentRepository.find({
+      where: { kbId: knowledgeBaseId },
+      select: ['id', 'storagePath'],
+    });
+
+    for (const document of documents) {
+      await this.storageService.deleteByStoragePath(
+        document.storagePath,
+      );
+      await this.parsedResultStore.remove(document.id);
+    }
+
+    await this.storageService.deleteKnowledgeBaseDirectory(
+      knowledgeBaseId,
+    );
   }
 
   private isDuplicateEntryError(error: unknown): boolean {

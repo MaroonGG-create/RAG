@@ -4,6 +4,7 @@ import {
   ExceptionFilter,
   HttpException,
   HttpStatus,
+  Logger,
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { MulterError } from 'multer';
@@ -31,6 +32,8 @@ interface ErrorResponse {
 
 @Catch()
 export class HttpExceptionFilter implements ExceptionFilter<unknown> {
+  private static readonly logger = new Logger(HttpExceptionFilter.name);
+
   catch(exception: unknown, host: ArgumentsHost): void {
     const response = host.switchToHttp().getResponse<Response>();
 
@@ -74,7 +77,10 @@ export class HttpExceptionFilter implements ExceptionFilter<unknown> {
           ? HttpStatus.PAYLOAD_TOO_LARGE
           : HttpStatus.BAD_REQUEST;
 
-      console.error('文件上传失败：', exception.code);
+      HttpExceptionFilter.logger.error(
+        `文件上传失败：${exception.code}`,
+        exception.stack,
+      );
       response.status(status).json({
         code: status,
         message:
@@ -86,7 +92,10 @@ export class HttpExceptionFilter implements ExceptionFilter<unknown> {
     }
 
     if (exception instanceof QueryFailedError) {
-      console.error('数据库操作失败：', exception);
+      HttpExceptionFilter.logger.error(
+        `数据库操作失败：${exception.message}`,
+        exception.stack,
+      );
       response.status(HttpStatus.INTERNAL_SERVER_ERROR).json({
         code: HttpStatus.INTERNAL_SERVER_ERROR,
         message: '数据库操作失败',
@@ -94,7 +103,10 @@ export class HttpExceptionFilter implements ExceptionFilter<unknown> {
       return;
     }
 
-    console.error('服务器内部错误：', exception);
+    HttpExceptionFilter.logger.error(
+      `服务器内部错误：${this.getUnknownExceptionMessage(exception)}`,
+      this.getUnknownExceptionStack(exception),
+    );
     response.status(HttpStatus.INTERNAL_SERVER_ERROR).json({
       code: HttpStatus.INTERNAL_SERVER_ERROR,
       message: '服务器内部错误',
@@ -183,5 +195,13 @@ export class HttpExceptionFilter implements ExceptionFilter<unknown> {
       Array.isArray(value) &&
       value.every((item: unknown) => typeof item === 'string')
     );
+  }
+
+  private getUnknownExceptionMessage(exception: unknown): string {
+    return exception instanceof Error ? exception.message : '未知错误';
+  }
+
+  private getUnknownExceptionStack(exception: unknown): string | undefined {
+    return exception instanceof Error ? exception.stack : undefined;
   }
 }

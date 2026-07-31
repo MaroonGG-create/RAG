@@ -1,22 +1,20 @@
 # Mini RAG 当前实现快照
 
-> 快照日期：2026-07-31（Asia/Shanghai）
-> 工作区：`D:\Users\Documents\RAG`
-> 当前阶段：T12 前端知识库与文档管理完成
-> 详细报告：`docs/reports/task-12-completion.md`
+> 快照日期：2026-07-31（Asia/Shanghai）  
+> 工作区：`D:\Users\Documents\RAG`  
+> 当前阶段：T14 整体联调与体验收口完成  
+> 最新报告：`docs/reports/task-14-completion.md`
 
 ## 当前结论
 
-- T01-T11 后端能力保持可用：知识库、文档上传/删除、解析、清洗切片、Embedding、Qdrant 写入、向量检索、非流式 RAG、SSE 流式问答、会话/消息/引用持久化均保留原模块职责。
-- T12 新增 Vue Router 前端路由、知识库列表/创建/删除/详情、文档列表/上传/删除、状态展示和处理中轮询。
-- 前端全部对接真实 `/api` 接口和统一响应结构，不使用 Mock 数据，不使用 `localStorage` / `sessionStorage` 缓存业务数据。
-- 本次未实现知识库编辑：当前后端没有 PUT/PATCH 更新接口，T12 明确不修改后端核心业务。
-- 本次没有实现聊天页面、SSE 客户端、会话列表、消息历史、引用来源展示、登录权限、多租户、Rerank、Agent 或 GraphRAG。
+- T01-T11 后端能力保持可用：知识库、文档上传/删除、解析、清洗切片、Embedding、Qdrant 写入、向量检索、非流式 RAG、SSE 流式问答、会话/消息/引用持久化均已实现。
+- T12-T13 前端能力保持可用：知识库列表/创建/删除/详情、文档列表/上传/删除/状态轮询、聊天页、会话列表、历史消息、SSE token 增量展示、引用展示、停止生成和刷新恢复均已实现。
+- T14 已完成集成收口：接口契约核对、删除清理补齐、生产 Logger 替换、卡住文档 reset CLI、README 和环境说明更新、前端空状态微调、完整链路回归。
+- 本次未新增数据库表、未新增 migration、未引入新依赖、未实现登录权限、多租户、Agent、GraphRAG、Rerank 或 WebSocket。
 
 ## 后端模块
 
 当前业务模块：
-
 - `HealthModule`
 - `KnowledgeBaseModule`
 - `DocumentModule`
@@ -29,144 +27,209 @@
 - `ConversationModule`
 - `ChatModule`
 
-T12 未修改后端核心业务、实体、数据库表或 migration。
+T14 后端收口：
+- `http-exception.filter.ts`、`main.ts`、`health.service.ts`、`database.service.ts` 的生产 `console.error` 已替换为 Nest `Logger`。
+- `KnowledgeBaseService.remove()` 删除知识库时先清 Qdrant，再清文档上传文件、解析缓存和知识库上传目录，最后删除数据库记录。
+- `DocumentStorageService` 新增 `deleteKnowledgeBaseDirectory()`。
+- 新增 `reset-stuck-documents.ts`，支持：
+  - `pnpm --filter server reset:document <documentId>`
+  - `pnpm --filter server reset:documents <knowledgeBaseId>`
 
 ## 前端结构
 
-T12 新增和调整的前端结构：
+当前主要前端结构：
 
 ```text
 web/src/
-├── router/
-│   └── index.ts
-├── api/
-│   ├── http.ts
-│   ├── knowledge-base.ts
-│   └── document.ts
-├── types/
-│   ├── knowledge-base.ts
-│   └── document.ts
-├── composables/
-│   ├── use-knowledge-bases.ts
-│   └── use-documents.ts
-├── components/
-│   ├── KnowledgeBaseCard.vue
-│   ├── CreateKnowledgeBaseModal.vue
-│   ├── DocumentUploader.vue
-│   ├── DocumentTable.vue
-│   └── DocumentStatusTag.vue
-├── views/
-│   ├── HomePage.vue
-│   ├── KnowledgeBaseListView.vue
-│   ├── KnowledgeBaseDetailView.vue
-│   └── ChatPlaceholderView.vue
-├── utils/
-│   ├── format.ts
-│   └── document-file.ts
-├── App.vue
-└── main.ts
+├─ router/
+│  └─ index.ts
+├─ api/
+│  ├─ http.ts
+│  ├─ knowledge-base.ts
+│  ├─ document.ts
+│  ├─ conversation.ts
+│  ├─ chat.ts
+│  └─ sse.ts
+├─ types/
+│  ├─ knowledge-base.ts
+│  ├─ document.ts
+│  ├─ conversation.ts
+│  └─ chat.ts
+├─ composables/
+│  ├─ use-knowledge-bases.ts
+│  ├─ use-documents.ts
+│  ├─ use-conversations.ts
+│  └─ use-chat.ts
+├─ components/
+│  ├─ KnowledgeBaseCard.vue
+│  ├─ CreateKnowledgeBaseModal.vue
+│  ├─ DocumentUploader.vue
+│  ├─ DocumentTable.vue
+│  ├─ DocumentStatusTag.vue
+│  ├─ ConversationList.vue
+│  ├─ MessageList.vue
+│  ├─ MessageBubble.vue
+│  ├─ ReferencePanel.vue
+│  └─ ChatInput.vue
+├─ views/
+│  ├─ HomePage.vue
+│  ├─ KnowledgeBaseListView.vue
+│  ├─ KnowledgeBaseDetailView.vue
+│  └─ ChatView.vue
+├─ utils/
+│  ├─ format.ts
+│  └─ document-file.ts
+├─ App.vue
+└─ main.ts
 ```
 
-新增依赖：
+T14 前端微调：
+- `DocumentTable.vue` 空状态为“暂无文档，点击上方上传”。
+- `MessageList.vue` 空状态为“输入问题开始对话”。
 
-| 包 | 配置 | 实际锁定 |
-|---|---:|---:|
-| `vue-router` | `^4.5` | `4.6.4` |
+依赖现状：
+- 已有：`vue`、`vue-router`、`ant-design-vue`、`axios`
+- 未新增：Pinia、图标库、聊天专项依赖
 
-未新增 Pinia、dayjs/moment、`@ant-design/icons-vue`。
+## 路由与接口
 
-## 前端路由
+前端路由：
 
 | 路由 | 页面 |
 |---|---|
 | `/` | 重定向到 `/knowledge-bases` |
 | `/knowledge-bases` | 知识库列表页 |
 | `/knowledge-bases/:id` | 知识库详情页 + 文档管理区 |
-| `/knowledge-bases/:id/chat` | T13 对话页占位，不调用聊天或 SSE 接口 |
-| `/health` | 原健康检查页面 |
+| `/knowledge-bases/:id/chat` | RAG 聊天页，支持 `?conversationId=N` 恢复历史会话 |
+| `/health` | 健康检查页面 |
 
-## 前端 API 封装
+核心后端接口：
+- `GET /api/health`
+- `POST /api/knowledge-bases`
+- `GET /api/knowledge-bases`
+- `GET /api/knowledge-bases/:id`
+- `DELETE /api/knowledge-bases/:id`
+- `POST /api/knowledge-bases/:id/documents`
+- `GET /api/knowledge-bases/:id/documents`
+- `GET /api/documents/:id`
+- `DELETE /api/documents/:id`
+- `POST /api/knowledge-bases/:id/retrieve`
+- `POST /api/knowledge-bases/:id/ask`
+- `POST /api/knowledge-bases/:id/chat`
+- `GET /api/knowledge-bases/:id/conversations`
+- `GET /api/conversations/:id/messages`
+- `DELETE /api/conversations/:id`
 
-- `web/src/api/http.ts` 保留成功响应 `{code,message,data}` 解包逻辑。
-- 错误响应封装为 `ApiError`，保留 `status`、`code`、`details`，页面只展示安全的 `message`。
-- `knowledge-base.ts` 对接：
-  - `GET /api/knowledge-bases`
-  - `GET /api/knowledge-bases/:id`
-  - `POST /api/knowledge-bases`
-  - `DELETE /api/knowledge-bases/:id`
-- `document.ts` 对接：
-  - `GET /api/knowledge-bases/:kbId/documents`
-  - `GET /api/documents/:id`
-  - `POST /api/knowledge-bases/:kbId/documents`
-  - `DELETE /api/documents/:id`
-- 上传使用 `FormData` 字段名 `file`，通过 Axios `onUploadProgress` 更新进度。
+SSE 事件：
+- `metadata`：`{conversationId,userMessageId}`
+- `token`：`{delta}`
+- `references`：`[{chunkId,documentId,documentName,pageNo,content,score}]`
+- `done`：`{assistantMessageId}`
+- `error`：`{message}`
 
-## 页面行为
+## 文档处理状态
 
-- 知识库列表页支持 loading、错误提示、空状态、创建 Modal、删除确认；创建/删除后重新请求列表。
-- 知识库详情页进入或刷新时重新请求后端详情和文档列表，不依赖本地缓存。
-- 文档上传组件前端限制 `.pdf/.md/.txt`，大小上限 20MB；后端仍是最终校验来源。
-- 文档状态完整展示 `pending`、`parsing`、`chunking`、`embedding`、`completed`、`failed`。
-- `useDocuments` 只在存在 `pending/parsing/chunking/embedding` 文档时每 3 秒轮询列表接口；全部终态或页面卸载后停止。
-- 文档删除使用确认提示，删除后刷新文档列表，并刷新知识库详情里的 `documentCount`。
+| 状态 | 当前含义 |
+|---|---|
+| `pending` | 已上传，待解析；或已解析后待切片 |
+| `parsing` | 正在解析 |
+| `chunking` | 已切片，待向量化或向量写入 |
+| `embedding` | 已向量化，待写入 Qdrant 或正在写入 |
+| `completed` | 已写入 Qdrant，可检索问答 |
+| `failed` | 处理失败，`errorMessage` 记录失败原因 |
+
+CLI 流水线：
+
+```bash
+pnpm --filter server parse:document <documentId>
+pnpm --filter server chunk:document <documentId>
+pnpm --filter server embed:document <documentId>
+pnpm --filter server store:document <documentId>
+```
+
+卡住文档恢复：
+
+```bash
+pnpm --filter server reset:document <documentId>
+pnpm --filter server reset:documents <knowledgeBaseId>
+```
+
+## 删除一致性
+
+删除文档：
+- 先按 `documentId` 删除 Qdrant 向量。
+- 再删除 MySQL `document`，由 FK 级联删除 `document_chunk`。
+- 最后删除上传文件和解析缓存。
+- Qdrant 删除失败会中断请求，便于重试。
+- 文件清理失败只记录日志。
+
+删除知识库：
+- 先按 `knowledgeBaseId` 删除 Qdrant 向量。
+- 再清理该知识库下所有文档文件和解析缓存。
+- 再删除 `server/uploads/{knowledgeBaseId}` 目录。
+- 最后删除 MySQL `knowledge_base`，由 FK 级联删除文档、切片、会话、消息和引用。
 
 ## 已验证结果
 
-构建与静态检查：
+构建和静态检查：
 
 | 命令 | 结果 |
 |---|---|
+| `pnpm --filter server build` | 通过 |
 | `pnpm --filter web type-check` | 通过 |
 | `pnpm --filter web build` | 通过 |
-| `pnpm --filter server build` | 通过 |
-| `rg "\bany\b" web/src` | 无命中 |
-| `rg "EventSource|WebSocket|SSE|fetchSse" web/src` | 无命中 |
-| `rg "pinia|createPinia|localStorage|sessionStorage|mock|Mock|fake|dummy" web/src` | 无命中 |
+| `DB_HOST=127.0.0.1 DB_PORT=3307 ... pnpm --filter server migration:show` | 通过，两条 migration 均已执行 |
+| 前端 console/debugger/mock/EventSource/WebSocket/localStorage/sessionStorage/any 扫描 | 无命中 |
+| 后端生产代码 console 扫描（排除 scripts） | 无命中 |
 
-真实接口验证：
-
-| 场景 | 实际结果 |
-|---|---|
-| 知识库创建、列表、详情、删除 | 通过；删除后列表中无测试知识库 |
-| TXT 上传 | 通过，返回 `status=pending` |
-| Markdown 上传 | 通过，返回 `status=pending` |
-| PDF 上传 | 通过，返回 `status=pending` |
-| 文档列表 | 上传 3 个文档后列表返回 3 条，均为 `pending` |
-| `documentCount` | 上传后为 3，删除文档后回到 0 |
-| 重复文件上传 | HTTP 409 |
-| `.docx` 上传 | HTTP 415 |
-| 超过 20MB 文件上传 | HTTP 413 |
-| 文档删除 | HTTP 204，删除后列表为空 |
-| 测试数据清理 | `T12验证%`、`T12 UI%` 知识库残留 0；相关测试文档残留 0 |
-
-浏览器页面验证：
+真实联调：
 
 | 场景 | 实际结果 |
 |---|---|
-| `/knowledge-bases` 初次进入 | 显示空状态，来自真实后端数据 |
-| UI 新建知识库 | 成功创建并显示在列表 |
-| 进入详情并刷新页面 | 详情仍从后端加载，显示真实 `documentCount` |
-| 文档状态展示 | 真实上传后的文档显示 `待处理` 和 `处理中` 标识 |
-| 状态轮询 | 测试中将文档状态改为 `completed` 后，页面约 3 秒后自动更新为 `已完成`，`处理中` 标识消失 |
-| UI 删除文档 | 成功，表格回到空状态 |
-| UI 删除知识库 | 成功，列表回到空状态 |
-| `/health` | 路由可访问，健康检查页面保留 |
-| `/knowledge-bases/:id/chat` | 仅显示“T13 实现”占位，不调用聊天或 SSE |
+| 创建/查询知识库 | 通过 |
+| 上传 PDF/MD/TXT | 通过 |
+| PDF/MD/TXT 解析、切片、Embedding、Qdrant 入库 | 通过 |
+| PDF 页码保留 | 通过，PDF chunk 页码为 1 和 2 |
+| `chunkIndex`、`charCount`、`qdrantPointId` | 通过，连续索引、字符数大于 0、UUID 格式正确 |
+| 向量检索命中 | 通过，PDF 命中 score `0.99999994` |
+| 阈值过滤无命中 | 通过 |
+| SSE 新会话问答 | 通过，收到 `metadata/token/references/done` |
+| 引用数据 | 通过，引用来自真实检索结果，含文档名、页码、score |
+| 已有会话续聊 | 通过 |
+| 页面刷新恢复 | 通过 |
+| 主动中止 SSE | 通过 |
+| 重复上传/类型错误/超大文件/空问题/不存在知识库 | 均返回预期错误 |
+| 空白 TXT 解析失败 | 通过，文档落 `failed` |
+| Embedding 服务失败 | 通过，文档落 `failed` |
+| reset CLI | 通过，卡住文档重置为 `pending` |
+| 删除文档 | 通过，Qdrant、DB、磁盘文件、解析缓存均清理 |
+| 删除知识库 | 通过，Qdrant、DB、上传目录均清理 |
+| 前端 UI 创建/删除知识库 | 通过 |
+| 前端详情和聊天空状态 | 通过 |
 
 ## 验证环境说明
 
-- Docker 中 `rag-mysql-1`、`rag-qdrant-1` 为 healthy。
-- 本机 3306 被宿主 `mysqld` 占用；本次验证临时启动 `rag-mysql-3307` 转发容器，将宿主 3307 转到 compose MySQL。
-- 后端验证进程临时使用 `DB_HOST=127.0.0.1 DB_PORT=3307 DB_USER=root DB_PASSWORD=root123` 启动。
-- 本地联调服务当前可通过 `http://localhost:5173/knowledge-bases` 访问。
+- Docker 中 `rag-mysql-1`、`rag-qdrant-1` 运行健康。
+- 本机 3306 被本机 MySQL 占用或鉴权不一致，T14 实际联调使用 `127.0.0.1:3307` 访问 Docker MySQL 转发。
+- 正常链路使用真实 Qdrant、Mock Embedding、Mock LLM。
+- Embedding 失败场景使用不可达 URL `http://127.0.0.1:9/v1`。
+- T14 自动化临时数据 `72/73/74/75/76/77` 已清理，无 DB、Qdrant、上传目录残留。
+- 当前数据库仍有既有知识库 `71/1231321`，含 2 个 `pending` 文档和 1 条会话，Qdrant 向量数为 0；该数据非 T14 临时命名数据，未删除。
 
-## 未完成项和已知问题
+## 未执行项和已知问题
 
-1. 知识库编辑未实现；当前后端没有更新接口，T12 不修改后端核心业务。
-2. 浏览器自动化工具没有暴露设置本地文件选择器的能力，因此未通过浏览器点击上传控件选择文件；已用同一后端上传接口验证真实上传，并在页面验证列表、状态和轮询。
-3. 文档上传后仍停留 `pending` 属于当前后端处理触发链路现状；T12 只负责展示和轮询状态。
-4. `pnpm --filter ...` 在该工作区会先输出 `No projects matched the filters "D:\Users\Documents\RAG"`，但目标 package 命令实际执行并成功。
+1. 未通过浏览器文件选择器上传文件；上传验证使用真实 HTTP multipart 接口完成。
+2. 未执行移动端截图验收。
+3. 未调用真实外部 Embedding/LLM 服务。
+4. 未构造应用启动后 Qdrant upsert 中途失败的假服务；仅验证了 Qdrant URL 不可达导致 CLI 初始化失败的实际表现。
+5. 当前 `.env` 默认 MySQL 指向 `localhost:3306` 时，`migration:show` 在本机环境会鉴权失败；需按实际 Docker 转发端口设置 `DB_HOST/DB_PORT`。
+6. `pnpm --filter ...` 在当前工作区会先打印 `No projects matched the filters "D:\Users\Documents\RAG"`，但目标 package 命令随后实际执行。
+7. Qdrant 在 CLI 应用初始化阶段不可达时，命令会失败并输出错误，但文档尚未进入 `storeDocument()`，状态保持 `chunking` 且 `errorMessage=null`。
 
 ## 下一阶段条件
 
-T12 已具备进入 T13 聊天页面开发的条件：知识库与文档管理前端已接入真实后端，路由、API 封装、上传、状态展示、轮询、删除和刷新取数已完成并通过验证。
+T14 已具备进入测试、部署和项目收口阶段的条件。下一步建议聚焦：
+- 自动化测试覆盖核心 splitter、Embedding batch、Qdrant 写入和 SSE 解析。
+- 梳理 `.env` 与 Docker Compose 的本机端口策略。
+- 完善部署 README、生产环境配置和演示脚本。
+- 评估 Qdrant 初始化失败时的恢复策略。

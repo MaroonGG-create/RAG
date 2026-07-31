@@ -10,6 +10,8 @@
     "chunk:document": "ts-node src/scripts/chunk-document.ts",
     "embed:document": "ts-node src/scripts/embed-document.ts",
     "store:document": "ts-node src/scripts/store-document.ts",
+    "reset:documents": "ts-node src/scripts/reset-stuck-documents.ts",
+    "reset:document": "ts-node src/scripts/reset-stuck-documents.ts",
     "typeorm": "typeorm-ts-node-commonjs -d src/database/data-source.ts",
     "migration:generate": "pnpm run typeorm migration:generate",
     "migration:run": "pnpm run typeorm migration:run",
