@@ -1,6 +1,6 @@
 # Mini RAG 知识库系统 — 第一版总体方案
 
-> 版本：v1.8（MVP 设计基线，T09 修订）
+> 版本：v1.9（MVP 设计基线，T10 修订）
 > 定位：个人开发、简历展示、面试讲解
 > 原则：先设计后编码、接口先行、数据结构先行、不扩大 MVP 范围
 
@@ -288,8 +288,9 @@ POST /api/chat/stream {knowledgeBaseId, question, conversationId?}
 | embedding | `src/modules/embedding/` | OpenAI 兼容 Embedding 客户端、Mock 模式、分批、重试、读取 DocumentChunk 并返回内存向量结果 | client 仅依赖 config；service 依赖 document 实体 |
 | vector-store | `src/modules/vector-store/` | Qdrant 客户端封装：建 collection、维度校验、payload 索引、upsert、按过滤删除和向量 search | client 仅依赖 config；service 依赖 embedding 和 document 实体 |
 | retrieval | `src/modules/retrieval/` | T09 检索编排：query embedding、knowledgeBaseId 过滤、TopK/阈值、payload 校验、completed 文档过滤，提供内部 Service 与测试 HTTP 接口 | 依赖 embedding、vector-store、database |
-| chat | `src/modules/chat/` | 检索 → Prompt → LLM 流式调用 → SSE 输出 | 依赖 retrieval、conversation、llm |
-| llm | `src/modules/llm/` | OpenAI 兼容 Chat 客户端（流式） | 仅依赖 config |
+| rag | `src/modules/rag/` | 检索 → Prompt → LLM 非流式调用 → answer + references | 依赖 retrieval、llm |
+| chat | `src/modules/chat/` | 检索 → Prompt → LLM 流式调用 → SSE 输出 | T11 起依赖 retrieval、conversation、llm |
+| llm | `src/modules/llm/` | OpenAI 兼容 Chat 客户端（T10 非流式，T11 扩展流式） | 仅依赖 config |
 | conversation | `src/modules/conversation/` | 会话、消息、引用的存取 | 依赖 database |
 
 **依赖规则：** controller 只做参数校验与转发；跨模块只通过对方导出的 service；禁止循环依赖；embedding / vector-store / llm 三个"外部资源客户端"不依赖任何业务模块（可单独测试、可替换实现）。
@@ -334,6 +335,7 @@ POST /api/chat/stream {knowledgeBaseId, question, conversationId?}
 | 12 | GET | `/api/conversations/:id/messages` | 会话消息（含引用） | assistant 消息带 references 数组 |
 | 13 | DELETE | `/api/conversations/:id` | 删除会话 | 返回 204 |
 | 14 | POST | `/api/knowledge-bases/:id/retrieve` | 向量检索测试接口 | body: `{query, topK?, scoreThreshold?}`；响应 `{results,total,took}`，结果不含向量 |
+| 15 | POST | `/api/knowledge-bases/:id/ask` | RAG 非流式问答 | body: `{question, topK?, scoreThreshold?}`；响应 `{answer,references,retrievalTook,llmTook,took}`，不返回向量 |
 
 错误码段位：400 参数校验失败、404 资源不存在、409 重复文件/重名、422 文档未处理完成不可问、502 模型服务异常、500 其他。
 
@@ -416,6 +418,9 @@ mini-rag/
 | `LLM_BASE_URL` / `LLM_API_KEY` / `LLM_MODEL` | 无默认（必填） | 聊天模型服务 |
 | `LLM_TEMPERATURE` | 0.3 | 低温减幻觉 |
 | `LLM_MAX_TOKENS` | 2048 | |
+| `LLM_TIMEOUT_MS` | 60000 | LLM 请求超时 |
+| `LLM_MAX_RETRIES` | 3 | LLM 可重试失败的最大重试次数 |
+| `LLM_MOCK` | false | 本地验收用确定性 Mock 回答，不调用真实模型服务 |
 | `UPLOAD_DIR` | ./uploads | 文件存储目录 |
 | `MAX_FILE_SIZE_MB` | 20 | 上传大小限制 |
 | `CHUNK_SIZE` / `CHUNK_OVERLAP` | 500 / 100 | 字符数 |
@@ -560,3 +565,13 @@ mini-rag/
 | 3 | §12 环境变量 `TOP_K`/`SCORE_THRESHOLD` 在 T09 实现 | 总体方案已列出，T09 首次使用检索配置，并支持请求级覆盖 |
 | 4 | §4.2 问答流水线 ②③ 补充：检索参数来源和过滤逻辑 | ② query 通过 `EmbeddingService.embedQuery()` 生成向量；③ Qdrant search 使用 `knowledgeBaseId` 过滤，TopK/阈值可覆盖，并过滤无效文档 |
 | 5 | `EmbeddingService` 新增 `embedQuery()` 方法 | T09 需要单条 query 向量化，复用 T07 `EmbeddingClient` 的 Mock、重试、超时和维度校验 |
+
+### v1.9（T10 设计时修订，项目负责人确认）
+
+| # | 变更 | 原因 |
+|---|---|---|
+| 1 | §7 模块划分补充：`rag` 模块在 T10 创建，`llm` 模块先实现非流式 Chat Completions 客户端 | T10 只交付基础 RAG 问答，不实现 T11 SSE、会话和引用落库 |
+| 2 | §9 API 接口清单补充 #15：`POST /api/knowledge-bases/:id/ask` | T10 新增非流式问答接口；body `{question, topK?, scoreThreshold?}`；响应 `{answer,references,retrievalTook,llmTook,took}` |
+| 3 | §12 LLM 环境变量补充 `LLM_TIMEOUT_MS`、`LLM_MAX_RETRIES`、`LLM_MOCK` | T10 首次调用 Chat Completions，需要显式配置超时、重试和本地 Mock 验收模式 |
+| 4 | §4.2 问答流水线补充：T10 阶段检索为空时直接返回固定提示并不调用 LLM，命中时按 `CONTEXT_MAX_CHARS` 组装上下文并同步返回 answer + references | 将防编造边界和非流式基础问答先落地，SSE 与会话闭环留给 T11-T13 |
+| 5 | §15 风险 7 更新：LLM 调用已具备超时、可重试失败处理和安全错误映射 | 降低模型服务短暂失败对问答接口的影响，且不向客户端泄露 API Key、Prompt 或内部异常 |

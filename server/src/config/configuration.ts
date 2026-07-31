@@ -40,6 +40,19 @@ export interface AppConfiguration {
     maxRetries: number;
     mock: boolean;
   };
+  llm: {
+    baseUrl: string;
+    apiKey: string;
+    model: string;
+    temperature: number;
+    maxTokens: number;
+    timeoutMs: number;
+    maxRetries: number;
+    mock: boolean;
+  };
+  rag: {
+    contextMaxChars: number;
+  };
 }
 
 export default function configuration(): AppConfiguration {
@@ -88,6 +101,19 @@ export default function configuration(): AppConfiguration {
       timeoutMs: Number(process.env.EMBEDDING_TIMEOUT_MS ?? 30000),
       maxRetries: Number(process.env.EMBEDDING_MAX_RETRIES ?? 3),
       mock: process.env.EMBEDDING_MOCK === 'true',
+    },
+    llm: {
+      baseUrl: process.env.LLM_BASE_URL ?? 'https://api.openai.com/v1',
+      apiKey: process.env.LLM_API_KEY ?? '',
+      model: process.env.LLM_MODEL ?? 'gpt-4o-mini',
+      temperature: Number(process.env.LLM_TEMPERATURE ?? 0.3),
+      maxTokens: Number(process.env.LLM_MAX_TOKENS ?? 2048),
+      timeoutMs: Number(process.env.LLM_TIMEOUT_MS ?? 60000),
+      maxRetries: Number(process.env.LLM_MAX_RETRIES ?? 3),
+      mock: process.env.LLM_MOCK === 'true',
+    },
+    rag: {
+      contextMaxChars: Number(process.env.CONTEXT_MAX_CHARS ?? 4000),
     },
   };
 

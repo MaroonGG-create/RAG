@@ -165,6 +165,64 @@ class EnvironmentVariables {
   @Type(() => Boolean)
   @IsBoolean()
   EMBEDDING_MOCK?: boolean;
+
+  @IsDefined()
+  @IsUrl({
+    require_tld: false,
+    require_protocol: true,
+    protocols: ['http', 'https'],
+  })
+  LLM_BASE_URL!: string;
+
+  @IsDefined()
+  @IsString()
+  @IsNotEmpty()
+  LLM_API_KEY!: string;
+
+  @IsDefined()
+  @IsString()
+  @IsNotEmpty()
+  LLM_MODEL!: string;
+
+  @IsDefined()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @Max(2)
+  LLM_TEMPERATURE!: number;
+
+  @IsDefined()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(8192)
+  LLM_MAX_TOKENS!: number;
+
+  @IsDefined()
+  @Type(() => Number)
+  @IsInt()
+  @Min(5000)
+  @Max(300000)
+  LLM_TIMEOUT_MS!: number;
+
+  @IsDefined()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(10)
+  LLM_MAX_RETRIES!: number;
+
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  LLM_MOCK?: boolean;
+
+  @IsDefined()
+  @Type(() => Number)
+  @IsInt()
+  @Min(500)
+  @Max(20000)
+  CONTEXT_MAX_CHARS!: number;
 }
 
 export function validateEnvironment(

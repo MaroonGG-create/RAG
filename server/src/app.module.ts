@@ -11,7 +11,9 @@ import { DocumentModule } from './modules/document/document.module';
 import { EmbeddingModule } from './modules/embedding/embedding.module';
 import { HealthModule } from './modules/health/health.module';
 import { KnowledgeBaseModule } from './modules/knowledge-base/knowledge-base.module';
+import { LlmModule } from './modules/llm/llm.module';
 import { ProcessingModule } from './modules/processing/processing.module';
+import { RagModule } from './modules/rag/rag.module';
 import { RetrievalModule } from './modules/retrieval/retrieval.module';
 import { VectorStoreModule } from './modules/vector-store/vector-store.module';
 
@@ -36,6 +38,8 @@ import { VectorStoreModule } from './modules/vector-store/vector-store.module';
     EmbeddingModule,
     VectorStoreModule,
     RetrievalModule,
+    LlmModule,
+    RagModule,
   ],
 })
 export class AppModule {}
