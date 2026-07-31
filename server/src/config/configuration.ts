@@ -53,6 +53,9 @@ export interface AppConfiguration {
   rag: {
     contextMaxChars: number;
   };
+  chat: {
+    historyMaxMessages: number;
+  };
 }
 
 export default function configuration(): AppConfiguration {
@@ -114,6 +117,11 @@ export default function configuration(): AppConfiguration {
     },
     rag: {
       contextMaxChars: Number(process.env.CONTEXT_MAX_CHARS ?? 4000),
+    },
+    chat: {
+      historyMaxMessages: Number(
+        process.env.CHAT_HISTORY_MAX_MESSAGES ?? 6,
+      ),
     },
   };
 

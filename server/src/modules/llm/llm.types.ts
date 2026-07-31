@@ -13,6 +13,14 @@ export interface ChatCompletionApiRequest {
   stream: false;
 }
 
+export interface ChatStreamApiRequest {
+  model: string;
+  messages: ChatMessage[];
+  temperature: number;
+  max_tokens: number;
+  stream: true;
+}
+
 export interface ChatCompletionApiChoice {
   index?: number;
   message?: {
@@ -20,6 +28,25 @@ export interface ChatCompletionApiChoice {
     content?: string | null;
   };
   finish_reason?: string | null;
+}
+
+export interface ChatStreamApiChoice {
+  index?: number;
+  delta?: {
+    role?: string;
+    content?: string | null;
+  };
+  finish_reason?: string | null;
+}
+
+export interface ChatStreamApiResponse {
+  choices: ChatStreamApiChoice[];
+  model?: string;
+}
+
+export interface ChatStreamDelta {
+  delta: string;
+  finishReason: string | null;
 }
 
 export interface ChatCompletionApiResponse {

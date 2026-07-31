@@ -223,6 +223,13 @@ class EnvironmentVariables {
   @Min(500)
   @Max(20000)
   CONTEXT_MAX_CHARS!: number;
+
+  @IsDefined()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(20)
+  CHAT_HISTORY_MAX_MESSAGES!: number;
 }
 
 export function validateEnvironment(

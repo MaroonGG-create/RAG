@@ -1,6 +1,6 @@
 # Mini RAG 知识库系统 — 第一版总体方案
 
-> 版本：v1.9（MVP 设计基线，T10 修订）
+> 版本：v2.0（MVP 设计基线，T11 修订）
 > 定位：个人开发、简历展示、面试讲解
 > 原则：先设计后编码、接口先行、数据结构先行、不扩大 MVP 范围
 
@@ -126,7 +126,7 @@ Rerank 仅作为基础版本验收后的可选优化项，不在本方案任务�
 ### 4.2 问答流水线（Query）
 
 ```
-POST /api/chat/stream {knowledgeBaseId, question, conversationId?}
+POST /api/knowledge-bases/:id/chat {question, conversationId?}
  ① 校验知识库存在；保存 user message（若带 conversationId 则归属该会话）
  ② question → EmbeddingService.embedQuery() → queryVector
  ③ Qdrant search：filter knowledgeBaseId，TopK/SCORE_THRESHOLD 使用环境默认值或请求覆盖；仅保留 completed 文档结果
@@ -134,11 +134,12 @@ POST /api/chat/stream {knowledgeBaseId, question, conversationId?}
       references=[]，**不调用 LLM（防编造的第一道闸）**
  ④ 组装上下文：按 score 降序拼接，标注 [来源i]，总长截断到 4000 字符
  ⑤ Prompt = 系统提示(只能依据给定资料回答,不知道就明说) + 上下文 + 问题
- ⑥ 调用 Chat API(stream=true)，逐 token 通过 SSE 推送：
+ ⑥ 调用 Chat API(stream=true)，通过 SSE 推送：
+      event: metadata data: {conversationId,userMessageId}
       event: token   data: {delta}
-      event: references  data: [{documentId,documentName,chunkIndex,pageNo,score}]
-      event: done    data: {messageId}
- ⑦ 流结束后保存 assistant message + message_reference 行
+      event: references  data: [{chunkId,documentId,documentName,pageNo,content,score}]
+      event: done    data: {assistantMessageId}
+ ⑦ LLM 完整生成成功后先事务保存 assistant message + message_reference 行，再发送 references/done
      异常：SSE 推送 event: error，已生成内容照常落库并标记
 ```
 
@@ -330,7 +331,7 @@ POST /api/chat/stream {knowledgeBaseId, question, conversationId?}
 | 7 | GET | `/api/knowledge-bases/:id/documents` | 文档列表 | 含 status、chunk_count、error_message |
 | 8 | GET | `/api/documents/:id` | 文档详情 | 含切片预览（前 20 条 chunk） |
 | 9 | DELETE | `/api/documents/:id` | 删除文档 | 返回 204 |
-| 10 | POST | `/api/chat/stream` | RAG 问答（SSE） | body: `{knowledgeBaseId, question, conversationId?, topK?, scoreThreshold?}`；响应 `text/event-stream` |
+| 10 | POST | `/api/knowledge-bases/:id/chat` | RAG 问答（SSE） | body: `{question, conversationId?, topK?, scoreThreshold?}`；响应 `text/event-stream` |
 | 11 | GET | `/api/knowledge-bases/:id/conversations` | 会话列表 | 按更新时间倒序 |
 | 12 | GET | `/api/conversations/:id/messages` | 会话消息（含引用） | assistant 消息带 references 数组 |
 | 13 | DELETE | `/api/conversations/:id` | 删除会话 | 返回 204 |
@@ -575,3 +576,12 @@ mini-rag/
 | 3 | §12 LLM 环境变量补充 `LLM_TIMEOUT_MS`、`LLM_MAX_RETRIES`、`LLM_MOCK` | T10 首次调用 Chat Completions，需要显式配置超时、重试和本地 Mock 验收模式 |
 | 4 | §4.2 问答流水线补充：T10 阶段检索为空时直接返回固定提示并不调用 LLM，命中时按 `CONTEXT_MAX_CHARS` 组装上下文并同步返回 answer + references | 将防编造边界和非流式基础问答先落地，SSE 与会话闭环留给 T11-T13 |
 | 5 | §15 风险 7 更新：LLM 调用已具备超时、可重试失败处理和安全错误映射 | 降低模型服务短暂失败对问答接口的影响，且不向客户端泄露 API Key、Prompt 或内部异常 |
+
+### v2.0（T11 设计时修订，按实际实现回填）
+
+| # | 变更 | 原因 |
+|---|---|---|
+| 1 | §9 API #10 路径由 `POST /api/chat/stream` 改为 `POST /api/knowledge-bases/:id/chat` | 与 T09 `/retrieve` 和 T10 `/ask` 的知识库路径风格保持一致，`knowledgeBaseId` 由 body 移到路径参数 |
+| 2 | §7 模块划分补充 `conversation` 与 `chat` 模块 | T11 实现会话、消息、引用持久化，以及 SSE 流式 RAG 编排 |
+| 3 | §12 环境变量补充 `CHAT_HISTORY_MAX_MESSAGES` | T11 首次把历史消息传给 LLM，需要限制进入 prompt 的最近消息条数 |
+| 4 | §4.2 问答流水线更新为 SSE `metadata/token/references/done/error` 事件 | T11 已实现流式 Chat Completions、客户端断开 abort、成功后保存助手消息和引用、失败时保存 failed 助手消息 |

@@ -6,12 +6,18 @@ import {
   ChatCompletionApiRequest,
   ChatCompletionApiResponse,
   ChatMessage,
+  ChatStreamApiChoice,
+  ChatStreamApiRequest,
+  ChatStreamApiResponse,
+  ChatStreamDelta,
   LlmFailure,
 } from './llm.types';
 
 const RETRY_BASE_DELAY_MS = 1000;
 const RETRY_MAX_DELAY_MS = 30000;
 const RETRY_JITTER_MS = 500;
+const MOCK_STREAM_CHUNK_SIZE = 5;
+const MOCK_STREAM_DELAY_MS = 50;
 
 @Injectable()
 export class LlmClient {
@@ -54,6 +60,18 @@ export class LlmClient {
     return this.httpChat(messages);
   }
 
+  async *chatStream(
+    messages: ChatMessage[],
+    abortSignal?: AbortSignal,
+  ): AsyncGenerator<ChatStreamDelta> {
+    if (this.mock) {
+      yield* this.mockChatStream(messages, abortSignal);
+      return;
+    }
+
+    yield* this.httpChatStream(messages, abortSignal);
+  }
+
   private mockChat(messages: ChatMessage[]): string {
     const userMessage = this.findLastUserMessage(messages);
     const sourceCount = (userMessage.content.match(/\[来源\d+\]/g) ?? [])
@@ -70,6 +88,30 @@ export class LlmClient {
     }
 
     return { role: 'user', content: '' };
+  }
+
+  private async *mockChatStream(
+    messages: ChatMessage[],
+    abortSignal?: AbortSignal,
+  ): AsyncGenerator<ChatStreamDelta> {
+    const answer = this.mockChat(messages);
+
+    for (
+      let start = 0;
+      start < answer.length;
+      start += MOCK_STREAM_CHUNK_SIZE
+    ) {
+      this.assertNotAborted(abortSignal);
+      await this.sleep(MOCK_STREAM_DELAY_MS);
+      this.assertNotAborted(abortSignal);
+
+      yield {
+        delta: answer.slice(start, start + MOCK_STREAM_CHUNK_SIZE),
+        finishReason: null,
+      };
+    }
+
+    yield { delta: '', finishReason: 'stop' };
   }
 
   private async httpChat(messages: ChatMessage[]): Promise<string> {
@@ -142,6 +184,102 @@ export class LlmClient {
     }
   }
 
+  private async *httpChatStream(
+    messages: ChatMessage[],
+    abortSignal?: AbortSignal,
+  ): AsyncGenerator<ChatStreamDelta> {
+    const controller = new AbortController();
+    let timedOut = false;
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, this.timeoutMs);
+    const abortListener = (): void => controller.abort();
+    abortSignal?.addEventListener('abort', abortListener, { once: true });
+
+    const requestBody: ChatStreamApiRequest = {
+      model: this.model,
+      messages,
+      temperature: this.temperature,
+      max_tokens: this.maxTokens,
+      stream: true,
+    };
+
+    try {
+      const response = await fetch(`${this.baseUrl}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${this.apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestBody),
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        throw this.createHttpFailure(response);
+      }
+
+      if (response.body === null) {
+        throw new LlmFailure('LLM API 流式响应体为空');
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        this.assertNotAborted(abortSignal);
+        const { value, done } = await reader.read();
+
+        if (done) {
+          break;
+        }
+
+        buffer += decoder.decode(value, { stream: true });
+        const frames = buffer.split(/\r?\n\r?\n/);
+        buffer = frames.pop() ?? '';
+
+        for (const frame of frames) {
+          const parsedFrame = this.parseSseFrame(frame);
+
+          if (parsedFrame === 'done') {
+            yield { delta: '', finishReason: 'stop' };
+            return;
+          }
+
+          if (parsedFrame !== null) {
+            yield parsedFrame;
+          }
+        }
+      }
+
+      buffer += decoder.decode();
+      const remainingFrame = this.parseSseFrame(buffer);
+
+      if (remainingFrame === 'done') {
+        yield { delta: '', finishReason: 'stop' };
+      } else if (remainingFrame !== null) {
+        yield remainingFrame;
+      }
+    } catch (error: unknown) {
+      if (this.isAbortError(error) || controller.signal.aborted) {
+        if (timedOut) {
+          throw new LlmFailure(
+            `LLM API 流式请求超时：${this.timeoutMs}ms`,
+          );
+        }
+
+        throw new LlmFailure('LLM API 流式请求已中止');
+      }
+
+      throw this.toLlmFailure(error);
+    } finally {
+      clearTimeout(timeout);
+      abortSignal?.removeEventListener('abort', abortListener);
+    }
+  }
+
   private async parseJson(response: Response): Promise<unknown> {
     try {
       return (await response.json()) as unknown;
@@ -163,6 +301,60 @@ export class LlmClient {
     }
 
     return content.trim();
+  }
+
+  private parseSseFrame(
+    frame: string,
+  ): ChatStreamDelta | 'done' | null {
+    const dataLines = frame
+      .split('\n')
+      .map((line) => line.trimEnd())
+      .filter((line) => line.startsWith('data:'));
+
+    for (const line of dataLines) {
+      const data = line.slice('data:'.length).trim();
+
+      if (data.length === 0) {
+        continue;
+      }
+
+      if (data === '[DONE]') {
+        return 'done';
+      }
+
+      const parsed = this.parseStreamJson(data);
+      const choice = parsed.choices[0];
+      const delta = choice?.delta?.content ?? '';
+
+      if (
+        delta.length > 0 ||
+        (choice?.finish_reason !== undefined &&
+          choice.finish_reason !== null)
+      ) {
+        return {
+          delta,
+          finishReason: choice?.finish_reason ?? null,
+        };
+      }
+    }
+
+    return null;
+  }
+
+  private parseStreamJson(data: string): ChatStreamApiResponse {
+    let parsed: unknown;
+
+    try {
+      parsed = JSON.parse(data) as unknown;
+    } catch {
+      throw new LlmFailure('LLM API 流式响应不是合法 JSON');
+    }
+
+    if (!this.isChatStreamApiResponse(parsed)) {
+      throw new LlmFailure('LLM API 流式响应结构不兼容');
+    }
+
+    return parsed;
   }
 
   private createHttpFailure(response: Response): LlmFailure {
@@ -289,6 +481,45 @@ export class LlmClient {
       (typeof candidate.message === 'object' &&
         candidate.message !== null)
     );
+  }
+
+  private isChatStreamApiResponse(
+    value: unknown,
+  ): value is ChatStreamApiResponse {
+    if (typeof value !== 'object' || value === null) {
+      return false;
+    }
+
+    const candidate = value as Partial<ChatStreamApiResponse>;
+
+    return (
+      Array.isArray(candidate.choices) &&
+      candidate.choices.length > 0 &&
+      candidate.choices.every((choice) =>
+        this.isChatStreamApiChoice(choice),
+      )
+    );
+  }
+
+  private isChatStreamApiChoice(
+    value: unknown,
+  ): value is ChatStreamApiChoice {
+    if (typeof value !== 'object' || value === null) {
+      return false;
+    }
+
+    const candidate = value as Partial<ChatStreamApiChoice>;
+
+    return (
+      candidate.delta === undefined ||
+      (typeof candidate.delta === 'object' && candidate.delta !== null)
+    );
+  }
+
+  private assertNotAborted(abortSignal?: AbortSignal): void {
+    if (abortSignal?.aborted) {
+      throw new LlmFailure('LLM API 流式请求已中止');
+    }
   }
 
   private sleep(delayMs: number): Promise<void> {

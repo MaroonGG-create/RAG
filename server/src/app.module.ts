@@ -7,6 +7,8 @@ import configuration from './config/configuration';
 import { validateEnvironment } from './config/env.validation';
 import { DatabaseModule } from './database/database.module';
 import { TypeOrmConfigService } from './database/typeorm.config';
+import { ChatModule } from './modules/chat/chat.module';
+import { ConversationModule } from './modules/conversation/conversation.module';
 import { DocumentModule } from './modules/document/document.module';
 import { EmbeddingModule } from './modules/embedding/embedding.module';
 import { HealthModule } from './modules/health/health.module';
@@ -40,6 +42,8 @@ import { VectorStoreModule } from './modules/vector-store/vector-store.module';
     RetrievalModule,
     LlmModule,
     RagModule,
+    ConversationModule,
+    ChatModule,
   ],
 })
 export class AppModule {}
