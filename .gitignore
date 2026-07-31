@@ -3,3 +3,6 @@ dist/
 .env
 uploads/
 *.log
+coverage/
+server/coverage/
+web/coverage/

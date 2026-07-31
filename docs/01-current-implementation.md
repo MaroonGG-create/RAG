@@ -2,15 +2,75 @@
 
 > 快照日期：2026-07-31（Asia/Shanghai）  
 > 工作区：`D:\Users\Documents\RAG`  
-> 当前阶段：T14 整体联调与体验收口完成  
-> 最新报告：`docs/reports/task-14-completion.md`
+> 当前阶段：T15 测试与代码质量收口完成  
+> 最新报告：`docs/reports/task-15-completion.md`
 
 ## 当前结论
 
 - T01-T11 后端能力保持可用：知识库、文档上传/删除、解析、清洗切片、Embedding、Qdrant 写入、向量检索、非流式 RAG、SSE 流式问答、会话/消息/引用持久化均已实现。
 - T12-T13 前端能力保持可用：知识库列表/创建/删除/详情、文档列表/上传/删除/状态轮询、聊天页、会话列表、历史消息、SSE token 增量展示、引用展示、停止生成和刷新恢复均已实现。
 - T14 已完成集成收口：接口契约核对、删除清理补齐、生产 Logger 替换、卡住文档 reset CLI、README 和环境说明更新、前端空状态微调、完整链路回归。
-- 本次未新增数据库表、未新增 migration、未引入新依赖、未实现登录权限、多租户、Agent、GraphRAG、Rerank 或 WebSocket。
+- T15 已完成测试与代码质量收口：新增 Jest/Vitest/ESLint 配置、后端核心单测、前端 API/SSE/composable 单测、轻量 HTTP 合约 E2E、coverage 命令和质量扫描。
+- 本次未新增数据库表、未新增 migration、未实现登录权限、多租户、Agent、GraphRAG、Rerank 或 WebSocket。T15 仅新增测试/质量相关 devDependencies，未新增业务运行依赖。
+
+## T15 测试基础设施
+
+后端：
+- Jest + ts-jest：`server/jest.config.ts`
+- E2E 配置：`server/test/jest-e2e.json`
+- ESLint：`server/.eslintrc.cjs`
+- 脚本：`test`、`test:watch`、`test:cov`、`test:e2e`、`lint`、`lint:check`
+- `server/tsconfig.json` 已补充 `noUnusedLocals`、`noUnusedParameters`、`noFallthroughCasesInSwitch`
+
+前端：
+- Vitest + jsdom + Vue Test Utils：`web/vitest.config.ts`
+- ESLint：`web/.eslintrc.cjs`
+- 脚本：`test`、`test:watch`、`test:cov`、`lint`、`lint:check`
+
+当前测试文件：
+
+```text
+server/src/modules/
+├─ processing/chunking/__tests__/text-cleaner.spec.ts
+├─ processing/chunking/__tests__/text-splitter.spec.ts
+├─ processing/chunking/__tests__/chunking.service.spec.ts
+├─ processing/parsing/__tests__/plain-text.parser.spec.ts
+├─ embedding/__tests__/embedding-client.spec.ts
+├─ embedding/__tests__/embedding.service.spec.ts
+├─ vector-store/__tests__/vector-store.service.spec.ts
+├─ retrieval/__tests__/retrieval.service.spec.ts
+├─ rag/__tests__/prompt-builder.spec.ts
+├─ rag/__tests__/rag.service.spec.ts
+├─ chat/__tests__/chat.service.spec.ts
+├─ conversation/__tests__/conversation.service.spec.ts
+├─ conversation/__tests__/message.service.spec.ts
+├─ document/__tests__/document.service.spec.ts
+└─ knowledge-base/__tests__/knowledge-base.service.spec.ts
+
+server/test/api-contract.e2e-spec.ts
+
+web/src/
+├─ api/__tests__/http.spec.ts
+├─ api/__tests__/sse.spec.ts
+├─ composables/__tests__/use-chat.spec.ts
+└─ composables/__tests__/use-conversations.spec.ts
+```
+
+T15 覆盖重点：
+- 文本解析、清洗、切片、overlap、PDF 页码、chunk 元数据。
+- Embedding 数量、顺序、维度、重试和失败状态。
+- Qdrant filter、payload、upsert 数量校验和删除方法。
+- Retrieval 的知识库过滤、completed 文档过滤、payload 安全处理。
+- RAG 上下文、无命中不调用 LLM、references 快照。
+- SSE 事件解析、半包/粘包/多行 data、abort 和错误事件。
+- 会话、消息、引用保存一致性。
+- 文档和知识库删除后的向量、文件、解析缓存清理。
+
+T15 发现并修正：
+- `text-splitter.ts` 在无分隔符长文本叠加 overlap 时可能生成超过 `chunkSize` 的 chunk，已改为 overflow 滑动切分。
+- `KnowledgeBaseService.remove()` 的文件/解析缓存/目录清理失败已改为 warn 后继续删除数据库，符合 T14 删除策略。
+- `MessageService` 移除未使用的 `referenceRepository` 注入。
+- 前端 `sse.ts` 和 `KnowledgeBaseListView.vue` 清理 lint 触发点。
 
 ## 后端模块
 
@@ -89,7 +149,8 @@ T14 前端微调：
 
 依赖现状：
 - 已有：`vue`、`vue-router`、`ant-design-vue`、`axios`
-- 未新增：Pinia、图标库、聊天专项依赖
+- T15 新增测试依赖：`vitest`、`@vue/test-utils`、`jsdom`、`@vitest/coverage-v8`、`eslint`、`eslint-plugin-vue`、`@typescript-eslint/*`
+- 未新增：Pinia、图标库、聊天专项运行依赖
 
 ## 路由与接口
 
@@ -175,12 +236,21 @@ pnpm --filter server reset:documents <knowledgeBaseId>
 
 | 命令 | 结果 |
 |---|---|
+| `pnpm --filter server run test -- --runInBand` | 通过，15 个 test suites，103 tests |
+| `pnpm --filter server run test:e2e -- --runInBand` | 通过，1 个 test suite，6 tests |
+| `pnpm --filter web run test` | 通过，4 个 test files，33 tests |
+| `pnpm --filter server run test:cov -- --runInBand` | 通过；All files statements 53.07%；P0 文件 `text-cleaner` 100%、`text-splitter` 95.38%、`plain-text.parser` 100%、`prompt-builder` 95.83% |
+| `pnpm --filter web run test:cov` | 通过；All files statements 64.79%；`sse.ts` 97.02%、`http.ts` 94.44%、`use-chat.ts` 84.35%、`use-conversations.ts` 91.07% |
+| `pnpm --filter server run lint:check` | 通过 |
+| `pnpm --filter web run lint:check` | 通过 |
 | `pnpm --filter server build` | 通过 |
 | `pnpm --filter web type-check` | 通过 |
 | `pnpm --filter web build` | 通过 |
 | `DB_HOST=127.0.0.1 DB_PORT=3307 ... pnpm --filter server migration:show` | 通过，两条 migration 均已执行 |
 | 前端 console/debugger/mock/EventSource/WebSocket/localStorage/sessionStorage/any 扫描 | 无命中 |
 | 后端生产代码 console 扫描（排除 scripts） | 无命中 |
+| 全源码显式 `any` 扫描（server/src、server/test、web/src） | 无命中 |
+| 硬编码 API Key 扫描 | 源代码无命中；README 和 `.env.example` 仅有 `sk-your-api-key` 占位符 |
 
 真实联调：
 
@@ -222,14 +292,15 @@ pnpm --filter server reset:documents <knowledgeBaseId>
 2. 未执行移动端截图验收。
 3. 未调用真实外部 Embedding/LLM 服务。
 4. 未构造应用启动后 Qdrant upsert 中途失败的假服务；仅验证了 Qdrant URL 不可达导致 CLI 初始化失败的实际表现。
-5. 当前 `.env` 默认 MySQL 指向 `localhost:3306` 时，`migration:show` 在本机环境会鉴权失败；需按实际 Docker 转发端口设置 `DB_HOST/DB_PORT`。
-6. `pnpm --filter ...` 在当前工作区会先打印 `No projects matched the filters "D:\Users\Documents\RAG"`，但目标 package 命令随后实际执行。
-7. Qdrant 在 CLI 应用初始化阶段不可达时，命令会失败并输出错误，但文档尚未进入 `storeDocument()`，状态保持 `chunking` 且 `errorMessage=null`。
+5. T15 未引入真实 MySQL 测试库跑完整 AppModule E2E；当前 E2E 是 HTTP 合约层测试，Service 依赖使用 mock，避免污染开发库。
+6. T15 覆盖率未覆盖 controller、storage、LLM HTTP streaming、PDF parser 等低 ROI 或外部依赖较重的文件；覆盖率数值以实际 `test:cov` 输出为准。
+7. 当前 `.env` 默认 MySQL 指向 `localhost:3306` 时，`migration:show` 在本机环境会鉴权失败；需按实际 Docker 转发端口设置 `DB_HOST/DB_PORT`。
+8. `pnpm --filter ...` 在当前工作区会先打印 `No projects matched the filters "D:\Users\Documents\RAG"`，但目标 package 命令随后实际执行。
+9. Qdrant 在 CLI 应用初始化阶段不可达时，命令会失败并输出错误，但文档尚未进入 `storeDocument()`，状态保持 `chunking` 且 `errorMessage=null`。
 
 ## 下一阶段条件
 
-T14 已具备进入测试、部署和项目收口阶段的条件。下一步建议聚焦：
-- 自动化测试覆盖核心 splitter、Embedding batch、Qdrant 写入和 SSE 解析。
+T15 已具备进入部署与 README 收口阶段的条件。下一步建议聚焦：
 - 梳理 `.env` 与 Docker Compose 的本机端口策略。
 - 完善部署 README、生产环境配置和演示脚本。
 - 评估 Qdrant 初始化失败时的恢复策略。

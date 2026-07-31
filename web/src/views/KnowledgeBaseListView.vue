@@ -13,8 +13,6 @@ import { onMounted, ref } from 'vue'
 import CreateKnowledgeBaseModal from '../components/CreateKnowledgeBaseModal.vue'
 import KnowledgeBaseCard from '../components/KnowledgeBaseCard.vue'
 import { useKnowledgeBases } from '../composables/use-knowledge-bases'
-import type { KnowledgeBase } from '../types/knowledge-base'
-
 const {
   knowledgeBases,
   loading,
@@ -29,7 +27,7 @@ onMounted(() => {
   void fetchKnowledgeBases()
 })
 
-function handleCreated(_knowledgeBase: KnowledgeBase): void {
+function handleCreated(): void {
   createModalOpen.value = false
   void fetchKnowledgeBases()
 }

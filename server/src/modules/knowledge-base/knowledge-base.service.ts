@@ -105,15 +105,34 @@ export class KnowledgeBaseService {
     });
 
     for (const document of documents) {
-      await this.storageService.deleteByStoragePath(
-        document.storagePath,
-      );
-      await this.parsedResultStore.remove(document.id);
+      try {
+        await this.storageService.deleteByStoragePath(
+          document.storagePath,
+        );
+      } catch (error: unknown) {
+        this.logger.warn(
+          `知识库文件清理失败（不阻止删除）：knowledgeBaseId=${knowledgeBaseId}，documentId=${document.id}，${this.getErrorMessage(error)}`,
+        );
+      }
+
+      try {
+        await this.parsedResultStore.remove(document.id);
+      } catch (error: unknown) {
+        this.logger.warn(
+          `知识库解析缓存清理失败（不阻止删除）：knowledgeBaseId=${knowledgeBaseId}，documentId=${document.id}，${this.getErrorMessage(error)}`,
+        );
+      }
     }
 
-    await this.storageService.deleteKnowledgeBaseDirectory(
-      knowledgeBaseId,
-    );
+    try {
+      await this.storageService.deleteKnowledgeBaseDirectory(
+        knowledgeBaseId,
+      );
+    } catch (error: unknown) {
+      this.logger.warn(
+        `知识库目录清理失败（不阻止删除）：knowledgeBaseId=${knowledgeBaseId}，${this.getErrorMessage(error)}`,
+      );
+    }
   }
 
   private isDuplicateEntryError(error: unknown): boolean {

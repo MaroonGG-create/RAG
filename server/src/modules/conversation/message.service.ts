@@ -33,8 +33,6 @@ export class MessageService {
   constructor(
     @InjectRepository(Message)
     private readonly messageRepository: Repository<Message>,
-    @InjectRepository(MessageReference)
-    private readonly referenceRepository: Repository<MessageReference>,
     private readonly dataSource: DataSource,
   ) {}
 

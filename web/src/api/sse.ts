@@ -73,12 +73,14 @@ async function readSseStream(
   const reader = body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
+  let reading = true
 
   try {
-    while (true) {
+    while (reading) {
       const result = await reader.read()
 
       if (result.done) {
+        reading = false
         break
       }
 

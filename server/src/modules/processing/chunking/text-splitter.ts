@@ -119,11 +119,16 @@ function mergeWithOverlap(
       chunks.push(current);
       const overlap =
         chunkOverlap > 0 ? current.slice(-chunkOverlap) : '';
-      current = overlap + segment;
+      current = mergeOverflow(
+        overlap + segment,
+        chunks,
+        chunkSize,
+        chunkOverlap,
+      );
       continue;
     }
 
-    current = segment;
+    current = mergeOverflow(segment, chunks, chunkSize, chunkOverlap);
   }
 
   if (current.length > 0) {
@@ -131,4 +136,31 @@ function mergeWithOverlap(
   }
 
   return chunks;
+}
+
+function mergeOverflow(
+  text: string,
+  chunks: string[],
+  chunkSize: number,
+  chunkOverlap: number,
+): string {
+  if (text.length <= chunkSize) {
+    return text;
+  }
+
+  let start = 0;
+
+  while (start < text.length) {
+    const end = Math.min(start + chunkSize, text.length);
+    const part = text.slice(start, end);
+
+    if (end === text.length) {
+      return part;
+    }
+
+    chunks.push(part);
+    start = chunkOverlap > 0 ? end - chunkOverlap : end;
+  }
+
+  return '';
 }
