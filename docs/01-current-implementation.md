@@ -2,15 +2,16 @@
 
 > 快照日期：2026-07-31（Asia/Shanghai）
 > 工作区：`D:\Users\Documents\RAG`
-> 当前阶段：T11 SSE 流式问答、会话与消息持久化完成
-> 详细报告：`docs/reports/task-11-completion.md`
+> 当前阶段：T12 前端知识库与文档管理完成
+> 详细报告：`docs/reports/task-12-completion.md`
 
 ## 当前结论
 
-- T01-T10 能力保持可用：知识库、文档上传、解析、清洗切片、Embedding、Qdrant 写入、向量检索、非流式 RAG 问答均保留原模块职责。
-- T11 新增 `ConversationModule` 与 `ChatModule`，实现 SSE 流式 RAG 问答、会话列表、消息历史、会话删除、用户/助手消息落库和引用快照落库。
-- 本次没有新增数据库表或 migration；`conversation`、`message`、`message_reference` 继续使用初始 migration 已定义的表。
-- 本次没有实现前端页面、WebSocket、Rerank、Agent、GraphRAG、消息队列、权限系统或新的检索/LLM 能力。
+- T01-T11 后端能力保持可用：知识库、文档上传/删除、解析、清洗切片、Embedding、Qdrant 写入、向量检索、非流式 RAG、SSE 流式问答、会话/消息/引用持久化均保留原模块职责。
+- T12 新增 Vue Router 前端路由、知识库列表/创建/删除/详情、文档列表/上传/删除、状态展示和处理中轮询。
+- 前端全部对接真实 `/api` 接口和统一响应结构，不使用 Mock 数据，不使用 `localStorage` / `sessionStorage` 缓存业务数据。
+- 本次未实现知识库编辑：当前后端没有 PUT/PATCH 更新接口，T12 明确不修改后端核心业务。
+- 本次没有实现聊天页面、SSE 客户端、会话列表、消息历史、引用来源展示、登录权限、多租户、Rerank、Agent 或 GraphRAG。
 
 ## 后端模块
 
@@ -28,110 +29,86 @@
 - `ConversationModule`
 - `ChatModule`
 
-T11 新增结构：
+T12 未修改后端核心业务、实体、数据库表或 migration。
+
+## 前端结构
+
+T12 新增和调整的前端结构：
 
 ```text
-server/src/modules/conversation/
-├── conversation.controller.ts
-├── conversation.module.ts
-├── conversation.service.ts
-├── dto/
-│   ├── conversation-response.dto.ts
-│   └── message-response.dto.ts
-├── entities/
-│   ├── conversation.entity.ts
-│   ├── message.entity.ts
-│   └── message-reference.entity.ts
-└── message.service.ts
-
-server/src/modules/chat/
-├── chat.controller.ts
-├── chat.module.ts
-├── chat.service.ts
-├── chat.types.ts
-├── dto/
-│   └── chat-request.dto.ts
-└── sse-writer.ts
+web/src/
+├── router/
+│   └── index.ts
+├── api/
+│   ├── http.ts
+│   ├── knowledge-base.ts
+│   └── document.ts
+├── types/
+│   ├── knowledge-base.ts
+│   └── document.ts
+├── composables/
+│   ├── use-knowledge-bases.ts
+│   └── use-documents.ts
+├── components/
+│   ├── KnowledgeBaseCard.vue
+│   ├── CreateKnowledgeBaseModal.vue
+│   ├── DocumentUploader.vue
+│   ├── DocumentTable.vue
+│   └── DocumentStatusTag.vue
+├── views/
+│   ├── HomePage.vue
+│   ├── KnowledgeBaseListView.vue
+│   ├── KnowledgeBaseDetailView.vue
+│   └── ChatPlaceholderView.vue
+├── utils/
+│   ├── format.ts
+│   └── document-file.ts
+├── App.vue
+└── main.ts
 ```
 
-## 接口
+新增依赖：
 
-已有接口继续保留：
+| 包 | 配置 | 实际锁定 |
+|---|---:|---:|
+| `vue-router` | `^4.5` | `4.6.4` |
 
-```text
-POST /api/knowledge-bases/:id/retrieve
-POST /api/knowledge-bases/:id/ask
-```
+未新增 Pinia、dayjs/moment、`@ant-design/icons-vue`。
 
-T11 新增接口：
+## 前端路由
 
-```text
-POST /api/knowledge-bases/:id/chat
-GET  /api/knowledge-bases/:id/conversations
-GET  /api/conversations/:id/messages
-DELETE /api/conversations/:id
-```
+| 路由 | 页面 |
+|---|---|
+| `/` | 重定向到 `/knowledge-bases` |
+| `/knowledge-bases` | 知识库列表页 |
+| `/knowledge-bases/:id` | 知识库详情页 + 文档管理区 |
+| `/knowledge-bases/:id/chat` | T13 对话页占位，不调用聊天或 SSE 接口 |
+| `/health` | 原健康检查页面 |
 
-`POST /api/knowledge-bases/:id/chat` 请求 body：
+## 前端 API 封装
 
-```json
-{
-  "question": "什么是 RAG？",
-  "conversationId": 1,
-  "topK": 5,
-  "scoreThreshold": 0.5
-}
-```
+- `web/src/api/http.ts` 保留成功响应 `{code,message,data}` 解包逻辑。
+- 错误响应封装为 `ApiError`，保留 `status`、`code`、`details`，页面只展示安全的 `message`。
+- `knowledge-base.ts` 对接：
+  - `GET /api/knowledge-bases`
+  - `GET /api/knowledge-bases/:id`
+  - `POST /api/knowledge-bases`
+  - `DELETE /api/knowledge-bases/:id`
+- `document.ts` 对接：
+  - `GET /api/knowledge-bases/:kbId/documents`
+  - `GET /api/documents/:id`
+  - `POST /api/knowledge-bases/:kbId/documents`
+  - `DELETE /api/documents/:id`
+- 上传使用 `FormData` 字段名 `file`，通过 Axios `onUploadProgress` 更新进度。
 
-SSE 事件协议：
+## 页面行为
 
-```text
-metadata   data: {"conversationId":1,"userMessageId":5}
-token      data: {"delta":"..."}
-references data: [{"chunkId":123,"documentId":45,"documentName":"a.txt","pageNo":null,"content":"...","score":1}]
-done       data: {"assistantMessageId":6}
-error      data: {"message":"问答服务暂时不可用：模型调用失败"}
-```
-
-正常顺序为 `metadata -> token* -> references -> done`；失败顺序为 `metadata -> token* -> error` 或 `metadata -> error`。SSE 接口使用 `@SkipResponseWrap()` 和 `Content-Type: text/event-stream` 绕过统一响应包装。
-
-## 配置
-
-T11 新增配置：
-
-| 环境变量 | 实际默认/示例 | 校验 |
-|---|---:|---|
-| `CHAT_HISTORY_MAX_MESSAGES` | 6 | 整数，0-20 |
-
-继续使用的相关配置：
-
-| 环境变量 | 默认/示例 | 用途 |
-|---|---:|---|
-| `CONTEXT_MAX_CHARS` | 4000 | 检索上下文最大字符数 |
-| `TOP_K` | 5 | 检索默认 TopK |
-| `SCORE_THRESHOLD` | 0.5 | 检索默认阈值 |
-| `LLM_BASE_URL` | `https://api.openai.com/v1` | OpenAI 兼容 Chat Completions 地址 |
-| `LLM_MODEL` | `gpt-4o-mini` | Chat 模型 |
-| `LLM_TIMEOUT_MS` | 60000 | 非流式和流式 LLM 请求超时 |
-| `LLM_MAX_RETRIES` | 3 | 仅非流式 `chat()` 使用的重试次数 |
-| `LLM_MOCK` | false | 本地 mock 回答与 mock 流式 token |
-
-## T11 实现要点
-
-- `LlmClient.chat()` 保持 T10 非流式逻辑不变；新增 `chatStream()`，使用 `fetch POST {LLM_BASE_URL}/chat/completions`、`stream:true`、`ReadableStream.getReader()` 解析 OpenAI 兼容 SSE `data:` 帧。
-- 流式 LLM 不做失败重试，避免 token 已发送后重放；超时和外部 abort 均通过 `AbortController` 终止。
-- `LLM_MOCK=true` 时，`chatStream()` 把 mock 回答按 5 个字符一组、约 50ms 间隔输出，用于验证 token 流和客户端断开。
-- `ChatService` 复用 `RetrievalService.search()` 与 T10 `buildRagPrompt()`；没有重复实现 query embedding、Qdrant search 或 Prompt 规则。
-- `conversationId` 不传时创建新会话，标题为首个问题前 30 字；传入时校验会话存在且 `kbId` 匹配当前知识库。
-- 同一会话用进程内 `Map<number, AbortController>` 做 in-flight 并发控制，重复请求返回 409，且此时 SSE 头尚未发送。
-- 用户消息在检索前保存，`metadata` 事件携带真实 `conversationId` 和 `userMessageId`。
-- 无检索结果时不调用 LLM，保存 completed 助手消息，发送固定提示、空引用和 `done`。
-- 检索命中时加载最近 `CHAT_HISTORY_MAX_MESSAGES` 条 completed 历史消息，插入 system prompt 与当前带上下文的 user prompt 之间。
-- LLM 流式完成后，助手完整回答和引用快照通过 `DataSource.transaction()` 同事务保存；引用来自实际进入 prompt 的检索结果。
-- LLM、检索等失败时发送安全 `error` 事件，并保存 failed 助手消息；失败助手消息不保存 references。
-- 客户端断开时通过 `req.on('close')` 触发 abort，停止后续模型流，并保存 failed 助手消息；断开后不再写 SSE 事件。
-- `MessageService` 在保存消息时更新 `conversation.updatedAt`，会话列表按 `updatedAt DESC, id DESC` 返回。
-- 删除会话使用 MySQL 外键级联删除消息和引用。
+- 知识库列表页支持 loading、错误提示、空状态、创建 Modal、删除确认；创建/删除后重新请求列表。
+- 知识库详情页进入或刷新时重新请求后端详情和文档列表，不依赖本地缓存。
+- 文档上传组件前端限制 `.pdf/.md/.txt`，大小上限 20MB；后端仍是最终校验来源。
+- 文档状态完整展示 `pending`、`parsing`、`chunking`、`embedding`、`completed`、`failed`。
+- `useDocuments` 只在存在 `pending/parsing/chunking/embedding` 文档时每 3 秒轮询列表接口；全部终态或页面卸载后停止。
+- 文档删除使用确认提示，删除后刷新文档列表，并刷新知识库详情里的 `documentCount`。
 
 ## 已验证结果
 
@@ -139,45 +116,57 @@ T11 新增配置：
 
 | 命令 | 结果 |
 |---|---|
-| `pnpm --filter server build` | 通过 |
 | `pnpm --filter web type-check` | 通过 |
-| `DB_HOST=127.0.0.1 DB_PORT=3307 pnpm --filter server migration:show` | 通过，显示 2 条既有 migration 已执行 |
-| `rg "\bany\b" server/src/modules/chat server/src/modules/conversation server/src/modules/llm server/src/config server/src/app.module.ts` | 无命中 |
-| `rg "WebSocket|websocket|Rerank|rerank|GraphRAG|Agent|EventSource|langchain|axios|from 'openai'|require\('openai'\)" ...` | 无命中 |
+| `pnpm --filter web build` | 通过 |
+| `pnpm --filter server build` | 通过 |
+| `rg "\bany\b" web/src` | 无命中 |
+| `rg "EventSource|WebSocket|SSE|fetchSse" web/src` | 无命中 |
+| `rg "pinia|createPinia|localStorage|sessionStorage|mock|Mock|fake|dummy" web/src` | 无命中 |
 
-集成验证环境：
-
-- Docker 中 `rag-mysql-1`、`rag-qdrant-1` 为 healthy。
-- `localhost:3306` 在本机仍有误连历史 MySQL 的风险；本次验证临时启动 `rag-mysql-3307-proxy` 连接 compose MySQL，验证后已删除。
-- 正常路径使用真实 Qdrant、`EMBEDDING_MOCK=true`、`LLM_MOCK=true`。
-- LLM 失败路径使用真实 Qdrant、`EMBEDDING_MOCK=true`、`LLM_MOCK=false`、`LLM_BASE_URL=http://127.0.0.1:3999`。
-
-实际接口验证：
+真实接口验证：
 
 | 场景 | 实际结果 |
 |---|---|
-| 新会话问答 | `metadata -> token x5 -> references -> done`，`references.length=1`，引用 content 与测试 chunk 一致 |
-| 已有会话继续问答 | `metadata.conversationId` 与传入会话一致，返回 token、references、done |
-| 会话列表 | `GET /api/knowledge-bases/:id/conversations` 返回 `code=0`，包含 `id/title/createdAt/updatedAt` |
-| 消息历史 | `GET /api/conversations/:id/messages` 返回 user + assistant，assistant 带 references，引用含 `documentId/chunkId/documentName/chunkIndex/pageNo/score/contentSnapshot` |
-| 无命中 | `metadata -> token -> references([]) -> done`，不调用 LLM |
-| 空问题 | HTTP 400 |
-| 知识库不存在 | HTTP 404 |
-| 会话不存在 | HTTP 404 |
-| 会话不属于当前知识库 | HTTP 404 |
-| 同一会话并发请求 | 第二个请求返回 HTTP 409 |
-| 客户端断开 | 服务端 abort 流式生成，落库 failed assistant message |
-| 删除会话 | HTTP 204，删除后消息查询 HTTP 404，直接查库确认 message/reference 级联删除 |
-| LLM 调用失败 | SSE `metadata -> error`，无 `done`；错误消息不含 API Key、fetch 细节、配置名或堆栈；落库 user completed + assistant failed，引用数 0 |
-| 测试数据清理 | `t11-chat-%`、`t11-llm-failure-%` 知识库残留为 0；相关测试标题会话残留为 0 |
+| 知识库创建、列表、详情、删除 | 通过；删除后列表中无测试知识库 |
+| TXT 上传 | 通过，返回 `status=pending` |
+| Markdown 上传 | 通过，返回 `status=pending` |
+| PDF 上传 | 通过，返回 `status=pending` |
+| 文档列表 | 上传 3 个文档后列表返回 3 条，均为 `pending` |
+| `documentCount` | 上传后为 3，删除文档后回到 0 |
+| 重复文件上传 | HTTP 409 |
+| `.docx` 上传 | HTTP 415 |
+| 超过 20MB 文件上传 | HTTP 413 |
+| 文档删除 | HTTP 204，删除后列表为空 |
+| 测试数据清理 | `T12验证%`、`T12 UI%` 知识库残留 0；相关测试文档残留 0 |
 
-## 已知问题
+浏览器页面验证：
 
-1. 本次未调用真实外部 LLM；正常流式输出使用 `LLM_MOCK=true`，失败路径用不可连接的本地 base URL 验证。
-2. 本次使用 `EMBEDDING_MOCK=true`；真实 Qdrant 只验证写入、过滤、检索和 SSE/RAG 链路，不评价语义召回质量。
-3. 默认 `.env` 的 `DB_HOST=localhost, DB_PORT=3306` 在本机仍可能误连历史 MySQL；端到端验证实际使用 3307 临时转发到 compose MySQL。
+| 场景 | 实际结果 |
+|---|---|
+| `/knowledge-bases` 初次进入 | 显示空状态，来自真实后端数据 |
+| UI 新建知识库 | 成功创建并显示在列表 |
+| 进入详情并刷新页面 | 详情仍从后端加载，显示真实 `documentCount` |
+| 文档状态展示 | 真实上传后的文档显示 `待处理` 和 `处理中` 标识 |
+| 状态轮询 | 测试中将文档状态改为 `completed` 后，页面约 3 秒后自动更新为 `已完成`，`处理中` 标识消失 |
+| UI 删除文档 | 成功，表格回到空状态 |
+| UI 删除知识库 | 成功，列表回到空状态 |
+| `/health` | 路由可访问，健康检查页面保留 |
+| `/knowledge-bases/:id/chat` | 仅显示“T13 实现”占位，不调用聊天或 SSE |
+
+## 验证环境说明
+
+- Docker 中 `rag-mysql-1`、`rag-qdrant-1` 为 healthy。
+- 本机 3306 被宿主 `mysqld` 占用；本次验证临时启动 `rag-mysql-3307` 转发容器，将宿主 3307 转到 compose MySQL。
+- 后端验证进程临时使用 `DB_HOST=127.0.0.1 DB_PORT=3307 DB_USER=root DB_PASSWORD=root123` 启动。
+- 本地联调服务当前可通过 `http://localhost:5173/knowledge-bases` 访问。
+
+## 未完成项和已知问题
+
+1. 知识库编辑未实现；当前后端没有更新接口，T12 不修改后端核心业务。
+2. 浏览器自动化工具没有暴露设置本地文件选择器的能力，因此未通过浏览器点击上传控件选择文件；已用同一后端上传接口验证真实上传，并在页面验证列表、状态和轮询。
+3. 文档上传后仍停留 `pending` 属于当前后端处理触发链路现状；T12 只负责展示和轮询状态。
 4. `pnpm --filter ...` 在该工作区会先输出 `No projects matched the filters "D:\Users\Documents\RAG"`，但目标 package 命令实际执行并成功。
 
 ## 下一阶段条件
 
-T11 已具备进入前端开发阶段的条件：后端已提供 SSE 流式问答、会话列表、消息历史、删除会话、消息和引用落库能力，并完成本次实际验证。
+T12 已具备进入 T13 聊天页面开发的条件：知识库与文档管理前端已接入真实后端，路由、API 封装、上传、状态展示、轮询、删除和刷新取数已完成并通过验证。

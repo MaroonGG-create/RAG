@@ -1,6 +1,6 @@
 # Mini RAG 知识库系统 — 第一版总体方案
 
-> 版本：v2.0（MVP 设计基线，T11 修订）
+> 版本：v2.1（MVP 设计基线，T12 修订）
 > 定位：个人开发、简历展示、面试讲解
 > 原则：先设计后编码、接口先行、数据结构先行、不扩大 MVP 范围
 
@@ -73,7 +73,7 @@ Rerank 仅作为基础版本验收后的可选优化项，不在本方案任务�
 | TypeScript | ~5.6 | 类型 | 全链路类型安全，面试加分 |
 | Vite | ^5.4 | 构建 | 开发体验 |
 | Vue Router | ^4.5 | 路由 | 标准 |
-| Pinia | ^2.3 | 状态 | 知识库/文档/会话三类 Store |
+| Pinia | 可选 | 状态 | T12 未引入；后续如聊天页状态复杂再评估 |
 | Ant Design Vue | ^4.2 | UI | 表格、上传、Drawer 开箱即用 |
 | Axios | ^1.8 | HTTP | 统一拦截器处理错误码 |
 | SSE | 原生 fetch + ReadableStream | 流式输出 | **不用 EventSource**：它只支持 GET，问答接口需要 POST 携带参数 |
@@ -304,13 +304,12 @@ POST /api/knowledge-bases/:id/chat {question, conversationId?}
 |---|---|---|
 | `/` | 重定向到 `/knowledge-bases` | — |
 | `/knowledge-bases` | 知识库列表页 | 卡片列表、新建弹窗、删除确认 |
-| `/knowledge-bases/:id` | 知识库详情页（默认文档 Tab） | 库信息头、Tab 容器 |
-| `/knowledge-bases/:id/documents` | 文档管理页 | 上传 Dragger（显示进度）、文档表格（状态 Tag 轮询刷新）、删除 |
-| `/knowledge-bases/:id/chat` | 对话页 | 左侧会话列表 + 右侧消息流（流式打字渲染）、引用折叠面板（文档名/页码/相似度/原文快照）、输入框 |
+| `/knowledge-bases/:id` | 知识库详情页 + 文档管理区 | 库信息头、上传 Dragger（显示进度）、文档表格（状态 Tag 轮询刷新）、删除 |
+| `/knowledge-bases/:id/chat` | 对话页 | T12 仅预留占位路由；T13 实现会话列表、消息流和引用展示 |
 
-**Pinia Store：** `useKnowledgeBaseStore`（列表/当前库）、`useDocumentStore`（文档列表 + 状态轮询定时器）、`useChatStore`（会话列表、消息流、SSE 连接状态）。
+**状态管理：** T12 使用 Vue composables（`useKnowledgeBases`、`useDocuments`）管理知识库、文档列表和轮询状态，不引入 Pinia；T13 视聊天页复杂度再评估是否需要独立 store。
 
-**API 层：** `src/api/` 按后端模块分文件（knowledgeBase.ts / document.ts / chat.ts / conversation.ts），Axios 实例统一 baseURL 与错误码处理；SSE 单独封装 `fetchSseStream()` 工具（fetch POST + ReadableStream 解析 `event:/data:` 帧）。
+**API 层：** `src/api/` 按后端模块分文件（knowledge-base.ts / document.ts / chat.ts / conversation.ts），Axios 实例统一 baseURL 与错误码处理；SSE 在 T13 单独封装 `fetchSseStream()` 工具（fetch POST + ReadableStream 解析 `event:/data:` 帧）。
 
 **状态约定：** 文档处理中每 3 秒轮询列表接口直至全部终态；聊天页区分「连接中 / 生成中 / 完成 / 失败」四态；空知识库、空文档、无引用均有 Empty 态文案。
 
@@ -443,8 +442,8 @@ mini-rag/
 | P5 | T05 文档解析 + T06 清洗切片 | 三种格式提取、切片落 document_chunk | T04 |
 | P6 | T07 Embedding 服务 + T08 Qdrant 写入 | 分批向量化、collection 自举与维度校验、upsert、状态机闭环 | T06 |
 | P7 | T09 向量检索 + T10 基础问答（非流式） | filter+TopK+阈值，同步返回完整答案 | T08 |
-| P8 | T11 SSE 流式 + T12 引用来源 + T13 会话记录 | 接口 10-13 完整闭环 | T10 |
-| P9 | T14a 前端：知识库与文档页；T14b 前端：对话页（SSE+引用） | 四页面可用 | T04 / T13 |
+| P8 | T11 SSE 流式问答、会话与消息持久化 | 接口 10-13 完整闭环 | T10 |
+| P9 | T12 前端：知识库与文档页；T13 前端：对话页（SSE+引用） | 知识库、文档和对话页面可用 | T04 / T11 |
 | P10 | T15 错误处理与日志打磨；T16 测试；T17 README 与容器化交付；T18 面试材料 | 可演示、可讲解 | 全部 |
 
 规则：**每阶段验收通过后才进入下一阶段**；单任务超出预期规模时必须向我反馈并再拆分，不允许 Codex 自行合并。
@@ -585,3 +584,12 @@ mini-rag/
 | 2 | §7 模块划分补充 `conversation` 与 `chat` 模块 | T11 实现会话、消息、引用持久化，以及 SSE 流式 RAG 编排 |
 | 3 | §12 环境变量补充 `CHAT_HISTORY_MAX_MESSAGES` | T11 首次把历史消息传给 LLM，需要限制进入 prompt 的最近消息条数 |
 | 4 | §4.2 问答流水线更新为 SSE `metadata/token/references/done/error` 事件 | T11 已实现流式 Chat Completions、客户端断开 abort、成功后保存助手消息和引用、失败时保存 failed 助手消息 |
+
+### v2.1（T12 设计时修订，按实际实现回填）
+
+| # | 变更 | 原因 |
+|---|---|---|
+| 1 | §3.1 前端状态管理改为 Pinia 可选，T12 未安装 Pinia | 用户要求不引入不必要状态管理框架；知识库与文档管理用 composables 已足够 |
+| 2 | §8 前端路由更新：文档管理合并进 `/knowledge-bases/:id`，`/knowledge-bases/:id/chat` 仅为 T13 占位 | T12 只实现知识库与文档管理，不实现聊天页和 SSE 客户端 |
+| 3 | §13 任务编号回填：前端知识库与文档页为 T12，前端聊天页为 T13 | T11 已合并 SSE、引用和会话持久化，前端阶段编号顺延 |
+| 4 | 知识库编辑暂不实现 | 当前后端无 PUT/PATCH 更新接口，T12 不修改后端业务逻辑 |
